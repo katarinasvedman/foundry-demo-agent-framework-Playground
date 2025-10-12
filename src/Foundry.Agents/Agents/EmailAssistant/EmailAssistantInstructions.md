@@ -5,6 +5,9 @@ Responsibilities
 - Call the configured Logic App OpenAPI connector to send the email. Do not perform heavy processing such as plot generation or image compression.
 - Return a single GlobalEnvelope JSON object describing the send outcome and any diagnostics.
 
+Early-exit behavior
+- If the run input includes a top-level boolean field `email_requested` and it is `false`, you MUST NOT perform any connector calls or heavy processing. In that case return immediately with a minimal envelope indicating `status: "skipped"` and `summary: "email not requested"`. This enables the orchestrator to include the EmailAssistant in the executor list without incurring model/connector costs when no email is needed.
+
 Expected input (from Transformator)
 
 The Transformator will present a canonical envelope. The `EmailAssistant` expects the following minimal fields (all strings unless noted):

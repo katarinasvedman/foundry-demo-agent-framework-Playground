@@ -1,0 +1,164 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_a_HTTP_request_is_received": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "email_to": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "email_to_str": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "email_subject": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "email_body_html": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "email_body_markdown": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "attachments": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "filename": {
+                                            "type": "string"
+                                        },
+                                        "content_base64": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            },
+                            "data": {
+                                "type": [
+                                    "object",
+                                    "null"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "email_to",
+                            "email_subject"
+                        ]
+                    }
+                },
+                "description": "Send emails to recipients"
+            }
+        },
+        "actions": {
+             "Compose_To": {
+                "runAfter": {},
+                "type": "Compose",
+                "inputs": "@coalesce(triggerBody()?['email_to_str'], join(triggerBody()?['email_to'], ';'))"
+            },
+            "Normalize_Attachments": {
+                "runAfter": {
+                    "Compose_To": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Compose",
+                "inputs": "@if(equals(coalesce(triggerBody()?['attachments'], triggerBody()?['data']?['attachments']), null), json('[]'), coalesce(triggerBody()?['attachments'], triggerBody()?['data']?['attachments']))"
+            },
+            "Select_Attachments": {
+                "runAfter": {
+                    "Normalize_Attachments": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Select",
+                "inputs": {
+                    "from": "@outputs('Normalize_Attachments')",
+                    "select": {
+                        "Name": "@item()?['filename']",
+                        "ContentBytes": "@item()?['content_base64']"
+                    }
+                }
+            },
+            "Send_an_email_": {
+                 "runAfter": {
+                    "Select_Attachments": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['office365_']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "body": {
+                        "To": "@triggerBody()?['email_to']",
+                        "Subject": "@triggerBody()?['email_subject']",
+                        "Body": "<p class=\"editor-paragraph\">@{triggerBody()?['email_body']}</p>",
+                        "Importance": "Normal"
+                    },
+                    "path": "/v2/Mail"
+                }
+            },
+            "Response": {
+                "runAfter": {
+                    "Send_an_email_": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Response",
+                "kind": "Http",
+                "inputs": {
+                    "statusCode": 200
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {
+                "office365_": {
+                    "id": "/subscriptions/4af326ce-fa13-4b32-8c36-6fb8963741c0/providers/Microsoft.Web/locations/swedencentral/managedApis/office365",
+                    "connectionId": "/subscriptions/4af326ce-fa13-4b32-8c36-6fb8963741c0/resourceGroups/rg-kapeltol-6234/providers/Microsoft.Web/connections/office365"
+                }
+            }
+        }
+    }
+}

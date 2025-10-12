@@ -182,17 +182,28 @@ namespace Foundry.Agents.Agents.Shared
             {
                 var client = new PersistentAgentsClient(_endpoint, new DefaultAzureCredential());
 
-                // Create a new thread for the run; many SDKs require a threadId for run lifecycle.
-                var threadResp = await client.Threads.CreateThreadAsync(new List<ThreadMessageOptions>());
-                var threadId = threadResp?.Value?.Id ?? string.Empty;
-
-                // Use the payload as the user input by creating a single user message content JSON and passing it to the run creation.
+                // Create a new thread for the run and include the initial user message (payload) in the thread creation
                 var payloadJson = Newtonsoft.Json.JsonConvert.SerializeObject(payload);
                 var textBlock = Azure.AI.Agents.Persistent.PersistentAgentsModelFactory.MessageInputTextBlock(payloadJson);
                 var content = BinaryData.FromObjectAsJson(textBlock);
 
-                // Create a user message in the thread as part of the run creation flow, but do it inline so we avoid separate pre-run posts.
-                var messageResp = await client.Messages.CreateMessageAsync(threadId, MessageRole.User, content.ToString(), cancellationToken: cancellationToken);
+                // Create an empty thread first, then post the initial user message into it. Some SDK DTOs are immutable
+                // and cannot be constructed via object initializers in all versions; using the Messages API is more robust.
+                var threadResp = await client.Threads.CreateThreadAsync();
+                var threadId = threadResp?.Value?.Id ?? string.Empty;
+
+                if (!string.IsNullOrEmpty(threadId))
+                {
+                    try
+                    {
+                        // Post the serialized textBlock content directly as a message content item
+                        await client.Messages.CreateMessageAsync(threadId, content);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to post initial payload message to thread {ThreadId}", threadId);
+                    }
+                }
 
                 // Start run
                 var runResp = await client.Runs.CreateRunAsync(threadId, agentId, overrideInstructions: null, cancellationToken: cancellationToken);

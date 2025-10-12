@@ -105,3 +105,6 @@ src/Foundry.Agents/Agents/Orchestrator/OrchestratorAgent copy.cs.copy
 src/Foundry.Agents/Agents/RemoteData/agent-id.txt
 src/Foundry.Agents/Agents/RemoteData/RemoteDataInstructions copy.md
 src/Foundry.Agents/Agents/Energy/EnergyInstructions copy.md
+src/Foundry.Agents.Samples.Workflows/ProgramProbe.cs
+.gitignore
+docs/email-sender-tool-issue.md

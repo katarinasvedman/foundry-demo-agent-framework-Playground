@@ -10,6 +10,10 @@ public class Program
 	{
 		try
 		{
+			// Run a small probe to inspect InProcessExecution run handle API surface
+			try { await ProgramProbe.RunProbeAsync(); } catch (Exception ex) { Console.WriteLine("Probe error: " + ex.Message); }
+			return 0;
+			
 			Console.WriteLine("Starting minimal Workflows repro: building single FunctionExecutor that yields output.");
 
 			// handler that logs, yields, and logs again

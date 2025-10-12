@@ -71,27 +71,6 @@ namespace Foundry.Agents.Agents.Orchestrator
             _logger.LogInformation($"email composer agent: {emailGeneratorAIAgent.DisplayName}");
             _logger.LogInformation($"email assistant agent: {emailAIAgent.DisplayName}");
 
-            // Build a list of executors: RemoteData -> Energy -> EmailGenerator
-            // Note: EmailAssistant is intentionally invoked separately after the generator output/transform so it
-            // is not included in the main sequential pipeline. This avoids executor id collisions when persisted
-            // assistant ids are accidentally duplicated on the target service.
-            var executors = new System.Collections.Generic.List<AIAgent> { remoteDataAIAgent, energyAIAgent, emailGeneratorAIAgent };
-
-            // Defensive check: ensure no two executors resolved to the same underlying AIAgent.Id
-            var idGroups = executors.GroupBy(a => a.Id).Where(g => g.Count() > 1).ToList();
-            if (idGroups.Count > 0)
-            {
-                foreach (var g in idGroups)
-                {
-                    _logger.LogError("Detected multiple executors referencing the same persisted assistant id {AssistantId}: {Executors}", g.Key, string.Join(',', g.Select(x => x.DisplayName ?? x.Id)));
-                }
-                return JsonConvert.SerializeObject(new { error = "Duplicate persisted assistant ids detected among executors; aborting orchestration." });
-            }
-
-            // Use the convenience builder which wires a sequential agent pipeline and the TurnToken/Output executor correctly.
-            var workflow = AgentWorkflowBuilder.BuildSequential(executors.ToArray());
-            _logger.LogInformation("Workflow initialized");
-
             // Execute the workflow using the streaming API.
             // Capture the last agent update data into resultJson and return it.
             string? resultJson = null;
@@ -133,6 +112,66 @@ namespace Foundry.Agents.Agents.Orchestrator
             var runPrompt = JsonConvert.SerializeObject(payload);
             _logger.LogInformation($"Running workflow with prompt: {runPrompt}");
 
+            // Build a list of executors conditionally: when emailRequested is false we only
+            // run RemoteData -> Energy (no EmailGenerator/EmailAssistant). When email is
+            // requested include the generator and assistant in the pipeline so the full
+            // sequence RemoteData -> Energy -> EmailGenerator -> EmailAssistant runs.
+            var executors = new System.Collections.Generic.List<AIAgent>();
+            executors.Add(remoteDataAIAgent);
+            executors.Add(energyAIAgent);
+            if (emailRequested && emailGeneratorAIAgent != null && emailAIAgent != null)
+            {
+                executors.Add(emailGeneratorAIAgent);
+                executors.Add(emailAIAgent);
+            }
+
+            // Defensive check: ensure no two executors resolved to the same underlying AIAgent.Id
+            var idGroups = executors.GroupBy(a => a.Id).Where(g => g.Count() > 1).ToList();
+            if (idGroups.Count > 0)
+            {
+                foreach (var g in idGroups)
+                {
+                    _logger.LogError("Detected multiple executors referencing the same persisted assistant id {AssistantId}: {Executors}", g.Key, string.Join(',', g.Select(x => x.DisplayName ?? x.Id)));
+                }
+                return JsonConvert.SerializeObject(new { error = "Duplicate persisted assistant ids detected among executors; aborting orchestration." });
+            }
+
+            // Use the convenience builder which wires a sequential agent pipeline and the TurnToken/Output executor correctly.
+            var workflow = AgentWorkflowBuilder.BuildSequential(executors.ToArray());
+            _logger.LogInformation("Workflow initialized");
+
+            // Demo: host-driven cancellation path. Set USE_RUN_CANCEL=1 to exercise RunAsync with a CancellationTokenSource.
+            try
+            {
+                var env = System.Environment.GetEnvironmentVariable("USE_RUN_CANCEL");
+                if (!string.IsNullOrWhiteSpace(env) && (env == "1" || env.Equals("true", StringComparison.OrdinalIgnoreCase)))
+                {
+                    _logger.LogInformation("USE_RUN_CANCEL enabled - running workflow with RunAsync and host cancellation demo.");
+                    var cts = new System.Threading.CancellationTokenSource();
+                    // cancel after 3s to demonstrate cooperative cancellation
+                    _ = System.Threading.Tasks.Task.Run(async () => { await System.Threading.Tasks.Task.Delay(3000).ConfigureAwait(false); try { cts.Cancel(); } catch { } });
+
+                    try
+                    {
+                        var inputObj = JsonConvert.DeserializeObject(runPrompt) ?? new { };
+                        var runResult = await InProcessExecution.RunAsync(workflow, inputObj, runId, cts.Token).ConfigureAwait(false);
+                        var serialized = JsonConvert.SerializeObject(runResult);
+                        return serialized;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogInformation("RunAsync was cancelled by host CancellationTokenSource.");
+                        return JsonConvert.SerializeObject(new { runId = runId, status = "cancelled" });
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "RunAsync threw an exception");
+                        return JsonConvert.SerializeObject(new { runId = runId, error = ex.Message });
+                    }
+                }
+            }
+            catch { }
+
             // Use a single ChatMessage so the underlying client sends one content item (avoids content array splitting)
             var run = await InProcessExecution.StreamAsync(workflow, new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, runPrompt));
             //var test = await InProcessExecution.RunAsync(workflow, runPrompt);
@@ -148,203 +187,126 @@ namespace Foundry.Agents.Agents.Orchestrator
             await run.TrySendMessageAsync(new TurnToken(emitEvents: true)).ConfigureAwait(false);
 
             string? lastExecutorId = null;
+            // Guard to ensure we inject the normalized EmailGenerator payload only once
+            bool emailAssistantPayloadInjected = false;
 
             await foreach (WorkflowEvent evt in run.WatchStreamAsync().ConfigureAwait(false))
             {
-                if (evt is AgentRunUpdateEvent e)
+                bool shouldBreak = false;
+                switch (evt)
                 {
-                    if (e.ExecutorId != lastExecutorId)
-                    {
-                        lastExecutorId = e.ExecutorId;
-                        _logger.LogInformation($"{e.ExecutorId}");
-                    }
-
-                    // Safely try to print Update.Text when present (use reflection to avoid hard dependency on runtime types)
-                    try
-                    {
-                        var upd = e.GetType().GetProperty("Update")?.GetValue(e);
-                        var text = upd?.GetType().GetProperty("Text")?.GetValue(upd)?.ToString();
-                        if (!string.IsNullOrEmpty(text))
-                            ConsoleWriteSafe(text);
-                    }
-                    catch { }
-
-                    // Best-effort detect function call contents and print name/args
-                    try
-                    {
-                        var upd = e.GetType().GetProperty("Update")?.GetValue(e);
-                        var contents = upd?.GetType().GetProperty("Contents")?.GetValue(upd) as System.Collections.IEnumerable;
-                        if (contents != null)
+                    case AgentRunUpdateEvent e:
+                        try
                         {
-                            foreach (var item in contents)
+                            if (e.ExecutorId != lastExecutorId)
                             {
-                                var typeName = item?.GetType().Name ?? string.Empty;
-                                if (typeName.IndexOf("FunctionCall", StringComparison.OrdinalIgnoreCase) >= 0)
-                                {
-                                    var name = item?.GetType().GetProperty("Name")?.GetValue(item)?.ToString() ?? "<fn>";
-                                    var args = item?.GetType().GetProperty("Arguments")?.GetValue(item);
-                                    _logger.LogInformation($"  [Calling function '{name}' with arguments: {System.Text.Json.JsonSerializer.Serialize(args)}]");
-                                    break;
-                                }
+                                lastExecutorId = e.ExecutorId;
+                                _logger.LogInformation($"{e.ExecutorId}");
                             }
-                        }
-                    }
-                    catch { }
-                }
-                else if (evt is WorkflowOutputEvent output)
-                {
-                    // Capture final output into resultJson for later processing.
-                    try
-                    {
-                        if (output.Data != null)
-                        {
-                            resultJson = SerializeData(output.Data);
-                        }
-                        else
-                        {
-                            resultJson = null;
-                        }
-                    }
-                    catch { resultJson = SerializeData(output.Data); }
 
-                    // If the last executor to produce updates was the EmailGenerator,
-                    // run the Transformator and invoke the EmailAssistant (sender-only)
-                    // inline here so the workflow can react immediately.
-                    try
-                    {
-                        // Ensure we only trigger for generator output and when sender is available
-                        if (!string.IsNullOrEmpty(lastExecutorId) && emailGeneratorAIAgent != null && emailAIAgent != null && lastExecutorId == emailGeneratorAIAgent.Id)
+                                var upd = e.GetType().GetProperty("Update")?.GetValue(e);
+                                var text = upd?.GetType().GetProperty("Text")?.GetValue(upd)?.ToString();
+                                if (!string.IsNullOrEmpty(text))
+                                    ConsoleWriteSafe(SanitizeForConsole(text));
+                        }
+                        catch { }
+
+                        try
                         {
-                                if (!string.IsNullOrWhiteSpace(resultJson))
+                            var upd = e.GetType().GetProperty("Update")?.GetValue(e);
+                            var contents = upd?.GetType().GetProperty("Contents")?.GetValue(upd) as System.Collections.IEnumerable;
+                            if (contents != null)
+                            {
+                                foreach (var item in contents)
                                 {
-                                    using var parsed = System.Text.Json.JsonDocument.Parse(resultJson);
-                                    var normalized = Transformator.NormalizeEnvelope(parsed.RootElement, _configuration, _logger);
-
-                                    var senderWorkflow = AgentWorkflowBuilder.BuildSequential(new AIAgent[] { emailAIAgent });
-                                    // normalized is a System.Text.Json.JsonElement; send its raw JSON text so the assistant
-                                    // receives plain JSON (not a serialized JsonElement CLR object)
-                                    var normalizedText = normalized.GetRawText();
-                                    var senderRun = await InProcessExecution.StreamAsync(senderWorkflow, new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, normalizedText));
-                                    await senderRun.TrySendMessageAsync(new TurnToken(emitEvents: true)).ConfigureAwait(false);
-
-                                await foreach (WorkflowEvent senderEvt in senderRun.WatchStreamAsync().ConfigureAwait(false))
-                                {
-                                    if (senderEvt is AgentRunUpdateEvent se)
+                                    var typeName = item?.GetType().Name ?? string.Empty;
+                                    if (typeName.IndexOf("FunctionCall", StringComparison.OrdinalIgnoreCase) >= 0)
                                     {
-                                        try
-                                        {
-                                            var upd = se.GetType().GetProperty("Update")?.GetValue(se);
-                                            var text = upd?.GetType().GetProperty("Text")?.GetValue(upd)?.ToString();
-                                            if (!string.IsNullOrEmpty(text)) ConsoleWriteSafe(text);
-                                        }
-                                        catch { }
-                                    }
-                                    else if (senderEvt is WorkflowOutputEvent senderOut)
-                                    {
-                                        try
-                                        {
-                                            if (senderOut.Data != null)
-                                            {
-                                                var senderResult = SerializeData(senderOut.Data);
-                                                _logger.LogInformation("EmailAssistant output: {Output}", senderResult);
-                                            }
-                                        }
-                                        catch { }
+                                        var name = item?.GetType().GetProperty("Name")?.GetValue(item)?.ToString() ?? "<fn>";
+                                        var args = item?.GetType().GetProperty("Arguments")?.GetValue(item);
+                                        _logger.LogInformation($"  [Calling function '{name}' with arguments: {System.Text.Json.JsonSerializer.Serialize(args)}]");
                                         break;
                                     }
                                 }
                             }
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to run Transformator + EmailAssistant inline after generator output");
-                    }
+                        catch { }
+                        break;
 
-                    break; // observed final output; stop streaming
+                    case WorkflowOutputEvent output:
+                        // Capture final output into resultJson for later processing.
+                        try
+                        {
+                            if (output.Data != null)
+                            {
+                                resultJson = SerializeData(output.Data);
+                            }
+                            else
+                            {
+                                resultJson = null;
+                            }
+                        }
+                        catch { resultJson = SerializeData(output.Data); }
+
+                        // If the last executor to produce updates was the EmailGenerator,
+                        // run the Transformator and inject the normalized payload into the
+                        // existing streaming run so the EmailAssistant (if included in the
+                        // main executors list) can process it in the same run/thread.
+                        try
+                        {
+                            // Ensure we only trigger for generator output and when sender is available
+                            if (!string.IsNullOrEmpty(lastExecutorId) && emailGeneratorAIAgent != null && emailAIAgent != null && lastExecutorId == emailGeneratorAIAgent.Id)
+                            {
+                                if (!string.IsNullOrWhiteSpace(resultJson))
+                                {
+                                    using var parsed = System.Text.Json.JsonDocument.Parse(resultJson);
+                                    var normalized = Transformator.NormalizeEnvelope(parsed.RootElement, _configuration, _logger);
+                                    
+
+                                    var normalizedText = normalized.GetRawText();
+
+                                    // Inject the normalized payload into the existing main run so the
+                                    // EmailAssistant processes it inline as part of the same workflow.
+                                    if (!emailAssistantPayloadInjected)
+                                    {
+                                        await run.TrySendMessageAsync(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, normalizedText)).ConfigureAwait(false);
+                                        await run.TrySendMessageAsync(new TurnToken(emitEvents: true)).ConfigureAwait(false);
+                                        emailAssistantPayloadInjected = true;
+                                    }
+
+                                    // Continue watching the same run to capture assistant updates.
+                                    continue;
+                                }
+                            }
+
+                            // If we reach here the output was not from the EmailGenerator (final output),
+                            // so stop streaming after capturing it.
+                            shouldBreak = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to run Transformator + EmailAssistant inline after generator output");
+                            shouldBreak = true;
+                        }
+
+                        break;
+
+                    default:
+                        // Unhandled event types are ignored by default; keep watching.
+                        break;
                 }
+
+                if (shouldBreak) break; // observed final output; stop streaming
             }
 
             _logger.LogInformation("WatchStreamAsync enumeration completed");
             if (resultJson != null)
             {
-                // If EmailAssistant will run as part of the pipeline and is expected to generate
-                // the plot (using code_interpreter/tooling), skip orchestrator-side plotting to
-                // avoid filesystem upload complexity. Otherwise generate the plot locally.
-                if (emailAIAgent == null)
-                {
-                    SaveEnergyOutputAndPlot(resultJson);
-                }
-                else
-                {
-                    _logger.LogInformation("EmailAssistant is present; skipping orchestrator plotting. EmailAssistant can generate/attach the plot.");
-                }
+                SaveEnergyOutputAndPlot(resultJson);
             }
             else
             {
                 _logger.LogWarning("Failed to save/plot energy output from orchestrator");
-            }
-
-            // If an EmailGenerator ran and returned output and the orchestrator requested email,
-            // run the Transformator and invoke the EmailAssistant (sender-only) with the normalized envelope.
-            // Honor ORCHESTRATOR_DRY_RUN to avoid actually invoking connector sends during test runs.
-            var dryRun = (System.Environment.GetEnvironmentVariable("ORCHESTRATOR_DRY_RUN") ?? "false").Equals("true", System.StringComparison.OrdinalIgnoreCase);
-            if (emailRequested && emailAIAgent != null)
-            {
-                try
-                {
-                    // Parse the generator output JSON into a JsonElement
-                    if (string.IsNullOrWhiteSpace(resultJson)) throw new System.ArgumentException("Empty generator output");
-                    using var parsed = System.Text.Json.JsonDocument.Parse(resultJson);
-                    var normalized = Transformator.NormalizeEnvelope(parsed.RootElement, _configuration, _logger);
-
-                    // Prepare a single-agent workflow for EmailAssistant
-                    if (dryRun)
-                    {
-                        // Use the raw JSON text for logging as well
-                        try { _logger.LogInformation("ORCHESTRATOR_DRY_RUN=true: skipping actual EmailAssistant send. Would invoke EmailAssistant with payload: {Payload}", normalized.GetRawText()); }
-                        catch { _logger.LogInformation("ORCHESTRATOR_DRY_RUN=true: skipping actual EmailAssistant send. Would invoke EmailAssistant (payload unavailable)"); }
-                    }
-                    else
-                    {
-                        var senderWorkflow = AgentWorkflowBuilder.BuildSequential(new AIAgent[] { emailAIAgent });
-                        var normalizedText = normalized.GetRawText();
-                        var senderRun = await InProcessExecution.StreamAsync(senderWorkflow, new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, normalizedText));
-                        await senderRun.TrySendMessageAsync(new TurnToken(emitEvents: true)).ConfigureAwait(false);
-
-                        await foreach (WorkflowEvent evt in senderRun.WatchStreamAsync().ConfigureAwait(false))
-                        {
-                            if (evt is AgentRunUpdateEvent e)
-                            {
-                                try
-                                {
-                                    var upd = e.GetType().GetProperty("Update")?.GetValue(e);
-                                    var text = upd?.GetType().GetProperty("Text")?.GetValue(upd)?.ToString();
-                                    if (!string.IsNullOrEmpty(text)) ConsoleWriteSafe(text);
-                                }
-                                catch { }
-                            }
-                            else if (evt is WorkflowOutputEvent output2)
-                            {
-                                // Log or persist sender output if present
-                                try
-                                {
-                                    if (output2.Data != null)
-                                    {
-                                        var senderResult = SerializeData(output2.Data);
-                                        _logger.LogInformation("EmailAssistant output: {Output}", senderResult);
-                                    }
-                                }
-                                catch { }
-                                break;
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to invoke EmailAssistant sender after transform");
-                }
             }
 
             // Ensure we always return a JSON string. If the executor emitted JSON already return it; otherwise wrap it.
@@ -606,6 +568,73 @@ namespace Foundry.Agents.Agents.Orchestrator
             // Fallback: try to serialize the object
             try { return JsonConvert.SerializeObject(dataVal); }
             catch { return dataVal.ToString() ?? string.Empty; }
+        }
+
+        // Truncate very large attachment/base64 blobs and long texts for console output.
+        // If the JSON contains a field named "content_base64" or "content", replace it with a short placeholder.
+        private static string SanitizeForConsole(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return input;
+
+            try
+            {
+                // If it looks like JSON, try to parse and sanitize attachments
+                var s = input.Trim();
+                if ((s.StartsWith("{") && s.EndsWith("}")) || (s.StartsWith("[") && s.EndsWith("]")))
+                {
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(s);
+                        var root = doc.RootElement;
+                        // Walk and sanitize
+                        string SanitizedElement(System.Text.Json.JsonElement el)
+                        {
+                            switch (el.ValueKind)
+                            {
+                                case System.Text.Json.JsonValueKind.Object:
+                                    var props = new System.Collections.Generic.List<string>();
+                                    foreach (var p in el.EnumerateObject())
+                                    {
+                                        if (string.Equals(p.Name, "content_base64", StringComparison.OrdinalIgnoreCase) || string.Equals(p.Name, "content", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            var placeholder = "<attachment: (content suppressed)>";
+                                            props.Add($"\"{p.Name}\": \"{placeholder}\"");
+                                            continue;
+                                        }
+                                        var v = SanitizedElement(p.Value);
+                                        props.Add($"\"{p.Name}\": {v}");
+                                    }
+                                    return "{" + string.Join(", ", props) + "}";
+
+                                case System.Text.Json.JsonValueKind.Array:
+                                    var items = new System.Collections.Generic.List<string>();
+                                    foreach (var it in el.EnumerateArray()) items.Add(SanitizedElement(it));
+                                    return "[" + string.Join(", ", items) + "]";
+
+                                case System.Text.Json.JsonValueKind.String:
+                                    var txt = el.GetString() ?? string.Empty;
+                                    if (txt.Length > 200) return "\"" + txt.Substring(0, 200) + "... (truncated)\"";
+                                    return JsonConvert.SerializeObject(txt);
+
+                                default:
+                                    return el.ToString() ?? string.Empty;
+                            }
+                        }
+
+                        var sanitized = SanitizedElement(root);
+                        // Keep overall length bounded
+                        if (sanitized.Length > 2000) sanitized = sanitized.Substring(0, 2000) + "... (truncated)";
+                        return sanitized;
+                    }
+                    catch { /* fallthrough to basic truncation */ }
+                }
+
+                // Not JSON or parse failed: truncate long raw text
+                if (input.Length > 2000) return input.Substring(0, 2000) + "... (truncated)";
+                if (input.Length > 500) return input.Substring(0, 500) + "... (truncated)";
+                return input;
+            }
+            catch { return input.Length > 1000 ? input.Substring(0, 1000) + "..." : input; }
         }
 
     }

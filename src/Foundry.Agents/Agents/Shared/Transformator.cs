@@ -327,7 +327,26 @@ namespace Foundry.Agents.Agents.Shared
                 }
             }
 
-            // Helpers to find a property from multiple locations
+            // If the selected parsed element is actually a JSON string (common when agents wrap
+            // JSON as a string), try to deserialize it to a JsonElement for subsequent traversal.
+            if (parsed.ValueKind == JsonValueKind.String)
+            {
+                var candidate = parsed.GetString() ?? string.Empty;
+                try
+                {
+                    var parsedStr = JsonSerializer.Deserialize<JsonElement>(candidate);
+                    if (parsedStr.ValueKind == JsonValueKind.Object || parsedStr.ValueKind == JsonValueKind.Array)
+                    {
+                        parsed = parsedStr;
+                        logger?.LogInformation("Transformator: parsed root string into JSON for normalization");
+                    }
+                }
+                catch { /* ignore - leave parsed as-is */ }
+            }
+
+            // Helpers to find a property from multiple locations. Traversal is resilient: if during
+            // traversal we encounter a string value that itself contains JSON, try to parse it and
+            // continue traversal. This handles cases where fields like 'data' are stringified JSON.
             JsonElement GetFirst(params string[] paths)
             {
                 foreach (var p in paths)
@@ -338,6 +357,21 @@ namespace Foundry.Agents.Agents.Shared
                     bool ok = true;
                     foreach (var part in parts)
                     {
+                        // If current element is a string, try to parse it as JSON and continue
+                        if (cur.ValueKind == JsonValueKind.String)
+                        {
+                            var s = cur.GetString() ?? string.Empty;
+                            try
+                            {
+                                var parsedInner = JsonSerializer.Deserialize<JsonElement>(s);
+                                if (parsedInner.ValueKind == JsonValueKind.Object || parsedInner.ValueKind == JsonValueKind.Array)
+                                {
+                                    cur = parsedInner;
+                                }
+                            }
+                            catch { /* leave cur as the string if parsing fails */ }
+                        }
+
                         if (cur.ValueKind != JsonValueKind.Object || !cur.TryGetProperty(part, out cur)) { ok = false; break; }
                     }
                     if (ok) return cur;
@@ -414,6 +448,18 @@ namespace Foundry.Agents.Agents.Shared
 
             var attachmentsElement = GetFirst("attachments", "data.attachments");
 
+            // Log the parsed object and attachment candidate for diagnostic purposes
+            try
+            {
+                logger?.LogDebug("Transformator: parsed object for normalization: {Parsed}", parsed.GetRawText());
+            }
+            catch { }
+            try
+            {
+                logger?.LogDebug("Transformator: attachments element kind={Kind} raw={Raw}", attachmentsElement.ValueKind, attachmentsElement.ValueKind == JsonValueKind.Undefined ? "<undefined>" : attachmentsElement.GetRawText());
+            }
+            catch { }
+
             // Attempt to locate an Energy envelope from the original root (useful when merged)
             JsonElement? energyEnvelopeFromRoot = null;
             if (root.ValueKind == JsonValueKind.Array)
@@ -466,6 +512,7 @@ namespace Foundry.Agents.Agents.Shared
             {
                 foreach (var item in toElement.EnumerateArray()) if (item.ValueKind == JsonValueKind.String) emailToList.Add(item.GetString()!);
             }
+            try { logger?.LogDebug("Transformator: extracted email_to list [{Emails}]", string.Join(',', emailToList)); } catch { }
             output["email_to"] = emailToList;
 
             // subject/body
