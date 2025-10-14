@@ -20,19 +20,34 @@ The following Mermaid flowchart shows the runtime sequence and handoffs between 
 
 ```mermaid
 flowchart LR
-	subgraph Host[Foundry Host]
+	subgraph Host[Host with agent framework]
 		direction TB
 		Orchestrator[Orchestrator]
+		Orchestrator --> Docs["output and plot"]
+		Orchestrator --> Transformator["Normalize email"]
 	end
 
 	Orchestrator --> RemoteData["RemoteData Agent<br/>(fetch signals)"]
-	RemoteData --> Energy["Energy Agent<br/>(compute baseline & measures)"]
-	Energy --> EmailGenerator["EmailGenerator Agent<br/>(draft email + attachments)"]
-	EmailGenerator --> Transformator["Transformator<br/>(normalize to GlobalEnvelope)"]
-	Transformator --> EmailAssistant["EmailAssistant<br/>(call Logic App connector)"]
-	EmailAssistant --> LogicApp["Azure Logic App<br/>(Office365 Send action)"]
-	Energy --> Docs["docs/last_agent_output.json"]
-	Energy --> Plotter["Plotting Script (Python)<br/>(docs/*.png)"]
+	RemoteData --> OpenAPI["OpenAPI tool<br/>(ExternalSignals API)"]
+
+	Orchestrator --> Energy["Energy Agent<br/>(compute baseline & measures)"]	
+	RemoteData -.->|"prices, temperatures (24h)"| Energy
+	Energy --> CodeInterp["Code Interpreter / Python<br/>(local analysis)"]
+	Energy -.->|"Calculated measures"| EmailGenerator
+
+	Orchestrator --> EmailGenerator["EmailGenerator Agent<br/>(draft email)"]
+	
+	EmailGenerator --> CodeInterp["Code Interpreter/Plotting"]	
+	EmailGenerator -.->|"pretty email with plot"| EmailAssistant
+
+	Orchestrator --> EmailAssistant["EmailAssitant agent<br/>(send email)"]
+	Orchestrator -.->|"normalized email"| EmailAssistant
+	EmailAssistant --> LogicAppConnector["Logic App connector<br/>(HTTP / connector)"]
+	LogicAppConnector --> Office365["Office365 Send action"]	
+		
+
+	classDef tool fill:#f3f4f6,stroke:#111,stroke-width:1px,stroke-dasharray: 2 1;
+	class OpenAPI,CodeInterp,LogicAppConnector,Office365 tool;
 ```
 
 How it works (short)

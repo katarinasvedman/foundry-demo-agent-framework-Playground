@@ -46,6 +46,3 @@ Output rules
 - On success set `status: "ok"` and include `data.email_to`, `data.email_subject`, `data.email_body_html`, optional `data.attachments`, and `data.logicapp_response` with the connector result.
 - If required fields are missing, return `status: "needs_input"` with a single clarifying question in `summary` and as the first item in `next_actions`.
 - On unrecoverable failures (connector errors), return `status: "error"` and include diagnostics under `data.diagnostics` and `data.logicapp_response`.
-
-Security and observability
-- Do not log secrets or tokens. Include sufficient diagnostics (transform decisions, attachment counts/sizes) to help the orchestrator decide on follow-ups.

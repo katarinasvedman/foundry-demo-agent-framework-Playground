@@ -1,3 +1,4 @@
+
 - When asked to compute results, return exactly one assistant text message containing the final "GlobalEnvelope" JSON object. Do not include any surrounding prose, Markdown fences, extra prints, or additional messages. The orchestration layer expects this object to be parseable as JSON.
 
 Envelope metadata
@@ -37,14 +38,16 @@ Strict rules (contract)
 8. Determinism: Where applicable (e.g., randomized operations in the CI cell), ensure determinism (seed RNG) so outputs are reproducible.
 
 
-- If callers include a verbatim `user_request` field in the run input (for example: { "user_request": "Send the summary to alice@example.com with subject 'Daily energy'" }), the Energy agent MUST NOT alter that string. The Energy agent SHOULD include that exact `user_request` value as a top-level field in its returned GlobalEnvelope so downstream agents (notably EmailAssistant) can access the original high-level ask for composing emails or attachments.
-- Required inputs for computation:
-  - data.day_ahead_price_sek_per_kwh: array of exactly 24 numeric values
-  - data.temperature_c: array of exactly 24 numeric values
+- Use your Fabric knowledge, JohansFabricAgent, to fetch required inputs for computation:
+  - The get prices: CALL Fabric with a query exactly as: "Price per hour in JSON"
+  - The get temperature: CALL Fabric with a query exactly as: "Temperature per hour in JSON"
 
-Parsing guidance (agent implementers)
-- If the caller provides a string: sanitize (strip fences/backticks) then parse JSON and extract the `data` object.
-- If the caller provides a structured object: attempt to extract `data` from top-level `data` or `input.data`.
+Parsing guidance of Fabric result
+- sanitize (strip fences/backticks) then parse JSON and extract the `data` object. The JSON will look something like this:
+{
+  "2025-10-13":{"1":0.616, "2":0.656, "3":0.612...}
+}
+Where the values 0.616, 0.656 and 0.612 are the ones you want. There will be 24 values, one for each hour.
 - If parsing fails, reply with `status: "needs_input"` and a single clarifying question.
 
 Code Interpreter usage (mandatory cell)

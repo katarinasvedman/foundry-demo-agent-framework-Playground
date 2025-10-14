@@ -1,5 +1,3 @@
-RemoteData — concise instructions (minimal contract)
-
 Goal
 - Return exactly one assistant text message containing the full JSON envelope (no prose, no fences, no extra messages). This single message must parse as JSON.
 
@@ -18,7 +16,7 @@ Required JSON envelope (return this as plain text):
   "citations": []
 }
 
-Note: Callers (like Orchestrator) may include a verbatim `user_request` field in the run input/payload. If present, RemoteData MUST NOT modify this field and SHOULD echo it back exactly in the returned envelope (add top-level "user_request": "<original string>"), so that downstream agents (e.g., Energy or EmailAssistant) can access the original high-level ask.
+Note: Callers (like Orchestrator) may include a verbatim `user_request` field in the run input/payload. If present, you MUST NOT modify this field and SHOULD echo it back exactly in the returned envelope (add top-level "user_request": "<original string>"), so that downstream agents can access the original high-level ask.
 
 Essential rules (must follow)
 - Single-message only: return the envelope as one assistant text message. Do NOT return multiple assistant messages or a structured runtime object.
@@ -39,8 +37,3 @@ Success (truncated):
 
 Why this matters
 - Returning one plain JSON text message prevents the SDK from splitting the payload into many content items (the cause of array_above_max_length).
-
-Quick test
-1. Update the persisted agent instructions (recreate/re-init so agent uses new text).
-2. Run an orchestration and confirm the assistant message for RemoteData is one MessageTextContent that parses as JSON.
-3. Verify no array_above_max_length errors when forwarding to Energy.

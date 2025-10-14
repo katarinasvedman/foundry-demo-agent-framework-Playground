@@ -19,14 +19,12 @@ namespace Foundry.Agents.Agents.Orchestrator
         }
 
         // Run the orchestration for a given zone/city/date. Returns the final GlobalEnvelope-like JSON string.
-    public async Task<string> RunAsync(string zone, string city, string date, string? userRequest = null)
+        public async Task<string> RunAsync(string zone, string city, string date, string? userRequest = null)
         {
             _logger.LogInformation("Running Agents");
             // Generate a run id early so handler closures can persist run-scoped diagnostic files
             var runId = Guid.NewGuid().ToString();
 
-            // Simple sequential orchestration: call RemoteData then Energy using their persisted agent ids.
-            // Use the DI-registered adapter when running against a non-HTTPS local endpoint to avoid DefaultAzureCredential bearer-token-on-http errors.
             var endpoint = System.Environment.GetEnvironmentVariable("PROJECT_ENDPOINT") ?? "http://localhost:3000";
             // Create a PersistentAgentsClient for the provided endpoint. When PROJECT_ENDPOINT is https, DefaultAzureCredential will be used.
             var persistentAgentsClient = new Azure.AI.Agents.Persistent.PersistentAgentsClient(endpoint, new Azure.Identity.DefaultAzureCredential());
@@ -44,15 +42,13 @@ namespace Foundry.Agents.Agents.Orchestrator
                 return JsonConvert.SerializeObject(new { error = "Failed to obtain RemoteData agent" });
             }
 
-            // Ensure the Energy agent exists (create if necessary) using the same helper pattern as RemoteData
+            // Ensure the Energy agent exists (create if necessary) 
             var energyAIAgent = await Foundry.Agents.Agents.Energy.EnergyAgent.GetOrCreateAIAgentAsync(endpoint, _configuration, _logger);
             if (energyAIAgent == null)
             {
                 _logger.LogError("Failed to obtain or create Energy agent. Aborting orchestration.");
                 return JsonConvert.SerializeObject(new { error = "Failed to obtain Energy agent" });
-            }
-
-            // Ensure EmailGenerator and EmailAssistant exist; EmailGenerator will be included in the main sequential pipeline.
+            }            
             var emailGeneratorAIAgent = await Foundry.Agents.Agents.EmailGenerator.EmailGeneratorAgent.GetOrCreateAIAgentAsync(endpoint, _configuration, _logger);
             if (emailGeneratorAIAgent == null)
             {
@@ -74,10 +70,7 @@ namespace Foundry.Agents.Agents.Orchestrator
             // Execute the workflow using the streaming API.
             // Capture the last agent update data into resultJson and return it.
             string? resultJson = null;
-
-            // Prepare a run input object. Include the original user request verbatim so downstream
-            // agents (notably EmailAssistant) can compose emails using the exact ask.
-            // Also include lightweight email metadata the orchestrator can derive.
+          
             bool emailRequested = false;
             var emailRecipients = new System.Collections.Generic.List<string>();
             if (!string.IsNullOrWhiteSpace(userRequest))
@@ -204,10 +197,10 @@ namespace Foundry.Agents.Agents.Orchestrator
                                 _logger.LogInformation($"{e.ExecutorId}");
                             }
 
-                                var upd = e.GetType().GetProperty("Update")?.GetValue(e);
-                                var text = upd?.GetType().GetProperty("Text")?.GetValue(upd)?.ToString();
-                                if (!string.IsNullOrEmpty(text))
-                                    ConsoleWriteSafe(SanitizeForConsole(text));
+                            var upd = e.GetType().GetProperty("Update")?.GetValue(e);
+                            var text = upd?.GetType().GetProperty("Text")?.GetValue(upd)?.ToString();
+                            if (!string.IsNullOrEmpty(text))
+                                ConsoleWriteSafe(SanitizeForConsole(text));
                         }
                         catch { }
 
@@ -261,7 +254,7 @@ namespace Foundry.Agents.Agents.Orchestrator
                                 {
                                     using var parsed = System.Text.Json.JsonDocument.Parse(resultJson);
                                     var normalized = Transformator.NormalizeEnvelope(parsed.RootElement, _configuration, _logger);
-                                    
+
 
                                     var normalizedText = normalized.GetRawText();
 
@@ -310,11 +303,11 @@ namespace Foundry.Agents.Agents.Orchestrator
             }
 
             // Ensure we always return a JSON string. If the executor emitted JSON already return it; otherwise wrap it.
-                if (string.IsNullOrWhiteSpace(resultJson))
-                {
-                    var fallback = new { runId = runId, message = "no executor output captured" };
-                    return JsonConvert.SerializeObject(fallback);
-                }
+            if (string.IsNullOrWhiteSpace(resultJson))
+            {
+                var fallback = new { runId = runId, message = "no executor output captured" };
+                return JsonConvert.SerializeObject(fallback);
+            }
 
             var trimmedResult = resultJson.TrimStart();
             if (trimmedResult.StartsWith("{") || trimmedResult.StartsWith("["))
