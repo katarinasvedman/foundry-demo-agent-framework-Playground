@@ -7,14 +7,14 @@ param environment string = 'dev'
 @description('Location for all resources')
 param location string = resourceGroup().location
 
-@description('AI Foundry project endpoint')
-param aiFoundryProjectEndpoint string
-
 @description('Model deployment name')
 param modelDeploymentName string = 'gpt-4o'
 
 @description('Email recipient for notifications')
 param emailRecipient string = ''
+
+@description('AI Foundry project endpoint')
+param aiFoundryProjectEndpoint string
 
 // Variables
 var uniqueSuffix = uniqueString(resourceGroup().id)
@@ -111,3 +111,26 @@ output keyVaultName string = keyVault.outputs.keyVaultName
 output appInsightsName string = appInsights.outputs.appInsightsName
 output agentTriggerLogicAppId string = agentTriggerLogicApp.outputs.workflowResourceId
 output emailLogicAppId string = emailLogicApp.outputs.workflowResourceId
+
+// AI Foundry configuration
+output aiFoundryProjectEndpointConfigured string = aiFoundryProjectEndpoint
+
+// Connection strings and configuration
+output configurationSummary object = {
+  functionApp: {
+    name: functionsApp.outputs.functionAppName
+    url: functionsApp.outputs.functionAppUrl
+  }
+  containerApp: {
+    name: containerApps.outputs.containerAppName
+    url: containerApps.outputs.containerAppUrl
+  }
+  keyVault: {
+    name: keyVault.outputs.keyVaultName
+    uri: keyVault.outputs.keyVaultUri
+  }
+  monitoring: {
+    appInsightsName: appInsights.outputs.appInsightsName
+    connectionString: appInsights.outputs.connectionString
+  }
+}

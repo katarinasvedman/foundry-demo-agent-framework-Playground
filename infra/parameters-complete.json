@@ -6,7 +6,7 @@
       "value": "foundry-agents"
     },
     "environment": {
-      "value": "dev"
+      "value": "prod"
     },
     "location": {
       "value": "swedencentral"
@@ -18,7 +18,7 @@
       "value": "gpt-4o"
     },
     "emailRecipient": {
-      "value": "your-email@domain.com"
+      "value": "admin@company.com"
     }
   }
 }

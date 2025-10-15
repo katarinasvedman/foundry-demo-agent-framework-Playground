@@ -3,22 +3,16 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "baseName": {
-      "value": "foundry-agents"
-    },
-    "environment": {
-      "value": "dev"
+      "value": "foundry-dev"
     },
     "location": {
       "value": "swedencentral"
     },
     "aiFoundryProjectEndpoint": {
-      "value": "https://persistent-agents-proj-resource.services.ai.azure.com/api/projects/persistent-agents-proj"
+      "value": "http://localhost:3000"
     },
     "modelDeploymentName": {
       "value": "gpt-4o"
-    },
-    "emailRecipient": {
-      "value": "your-email@domain.com"
     }
   }
 }

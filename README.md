@@ -1,14 +1,27 @@
 
 # Foundry Demo — persisted AI agents (C#)
 
-This repository demonstrates persisted AI "agents" hosted in a .NET app and a small in-process Orchestrator that runs a sequential agent pipeline and captures final outputs.
+This repository demonstrates persisted AI "agents" hosted in a .NET app with a comprehensive Azure infrastructure for production deployment. It includes a multi-agent orchestration system that runs sequential pipelines and captures outputs, plus complete Infrastructure as Code (Bicep) templates for Azure deployment.
 
-What you'll find
+## 📁 What you'll find
+
+### Application Code
 - `src/Foundry.Agents` — the host and DI wiring; the console app that builds and runs agents
 - `src/Foundry.Agents/Agents` — agent wrappers and the `Orchestrator` implementation
+- `src/ExternalSignals.Api` — Azure Functions app providing external data endpoints
 - `Agents/` — agent instruction markdown and runtime persisted artifacts (ignored by git)
 - `docs/` — orchestrator outputs (e.g. `last_agent_output.json`) and generated plots
 - `tests/` — unit tests
+
+### Infrastructure as Code
+- `infra/` — Complete Azure infrastructure using Bicep templates
+  - `main.bicep` — Production-ready infrastructure with Container Apps
+  - `main-dev.bicep` — Development environment with cost-optimized resources
+  - `main-complete.bicep` — Full-featured deployment with all components
+  - `modules/` — Modular Bicep components (Key Vault, Logic Apps, etc.)
+  - `deploy.ps1` — PowerShell deployment script with validation
+  - `README.md` — Infrastructure documentation and deployment guide
+  - `DEPLOYMENT-SUMMARY.md` — Complete infrastructure overview and costs
 
 High-level behavior
 - The host creates-or-fetches persisted agents (RemoteData, Energy, etc.) using the Persistent Agents SDK.
@@ -23,8 +36,8 @@ flowchart LR
 	subgraph Host[Host with agent framework]
 		direction TB
 		Orchestrator[Orchestrator]
-		Orchestrator --> Docs["output and plot"]
-		Orchestrator --> Transformator["Normalize email"]
+		Orchestrator --> Docs["Agents output and plot"]
+		Orchestrator --> Transformator["Transformator<br>normalize email"]
 	end
 
 	Orchestrator --> RemoteData["RemoteData Agent<br/>(fetch signals)"]
@@ -41,13 +54,70 @@ flowchart LR
 	EmailGenerator -.->|"pretty email with plot"| EmailAssistant
 
 	Orchestrator --> EmailAssistant["EmailAssitant agent<br/>(send email)"]
-	Orchestrator -.->|"normalized email"| EmailAssistant
+	Transformator -.->|"normalized email"| EmailAssistant
 	EmailAssistant --> LogicAppConnector["Logic App connector<br/>(HTTP / connector)"]
 	LogicAppConnector --> Office365["Office365 Send action"]	
 		
 
 	classDef tool fill:#f3f4f6,stroke:#111,stroke-width:1px,stroke-dasharray: 2 1;
 	class OpenAPI,CodeInterp,LogicAppConnector,Office365 tool;
+```
+
+### Azure Infrastructure Architecture
+
+```mermaid
+flowchart TB
+    subgraph Azure["Azure Cloud Environment"]
+        subgraph Container["Container Apps Environment"]
+            CA[Container App<br/>Foundry Agents]
+        end
+        
+        subgraph Functions["Azure Functions"]
+            FA[Function App<br/>External Signals API]
+        end
+        
+        subgraph LogicApps["Logic Apps"]
+            LA1[Agent Trigger<br/>Logic App]
+            LA2[Email Sender<br/>Logic App]
+        end
+        
+        subgraph Security["Security & Config"]
+            KV[Key Vault<br/>Secrets]
+            MI[Managed<br/>Identity]
+        end
+        
+        subgraph Monitoring["Monitoring"]
+            AI[Application<br/>Insights]
+            LA[Log Analytics<br/>Workspace]
+        end
+        
+        subgraph Storage["Storage"]
+            ST[Storage Account<br/>Functions Data]
+        end
+        
+        subgraph External["External Services"]
+            AF[AI Foundry<br/>Project]
+            O365[Office 365<br/>Email]
+        end
+    end
+    
+    CA --> KV
+    CA --> AI
+    CA --> AF
+    FA --> ST
+    FA --> AI
+    LA1 --> AF
+    LA2 --> O365
+    MI --> KV
+    AI --> LA
+    
+    classDef azure fill:#0078d4,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef security fill:#00bcf2,stroke:#fff,stroke-width:2px,color:#fff;
+    classDef external fill:#f3f4f6,stroke:#111,stroke-width:1px,stroke-dasharray: 2 1;
+    
+    class Container,Functions,LogicApps azure;
+    class Security security;
+    class External external;
 ```
 
 How it works (short)
@@ -58,8 +128,10 @@ How it works (short)
 - `Transformator` normalizes heterogeneous outputs into a canonical envelope (array `email_to`, top-level `email_to_str`, `email_subject`, `email_body_html`, and `attachments`) and enforces inline-only attachments (omits oversized ones and records diagnostics).
 - `EmailAssistant` accepts the canonical envelope and calls a deployed Azure Logic App (Office365 connector) to send the email. The Logic App expects a string recipient; the Transformator provides a top-level `email_to_str` to reduce mismatches.
 
-How to run
-1. Build and run the host (powershell):
+## 🚀 Quick Start
+
+### Option 1: Local Development
+1. **Build and run the host locally**:
 
 ```powershell
 dotnet restore
@@ -75,7 +147,25 @@ $env:TEST_USER_REQUEST="Compute a deterministic baseline and three energy-saving
 dotnet run --project src/Foundry.Agents --configuration Debug
 ```
 
-2. After a successful run, check `docs/last_agent_output.json` for the energy GlobalEnvelope and `docs/` for any generated plot PNGs.
+2. **Check outputs**: After a successful run, check `docs/last_agent_output.json` for the energy GlobalEnvelope and `docs/` for any generated plot PNGs.
+
+### Option 2: Deploy to Azure
+1. **Deploy infrastructure**:
+```powershell
+cd infra
+# Development environment
+.\deploy.ps1 -Environment dev
+
+# Production environment
+.\deploy.ps1 -Environment prod -ResourceGroupName "rg-foundry-prod"
+```
+
+2. **Configure services**:
+   - Set up AI Foundry connector in Logic Apps
+   - Authenticate Office 365 connection for email
+   - Deploy application code to the provisioned resources
+
+3. **See full deployment guide**: Check `infra/README.md` for comprehensive setup instructions
 
 Troubleshooting tips
 - If emails fail to send or recipient fields appear empty in Logic App runs, inspect the orchestrator logs to see the exact normalized JSON the `Transformator` produced (the orchestrator logs the envelope before invoking `EmailAssistant`). Look for `email_to`, `email_to_str`, and `attachments` fields.
@@ -86,29 +176,62 @@ Developer notes
 - Agent instructions live under `Agents/<Agent>/` (e.g. `Agents/Energy/EnergyInstructions.md`) and define strict single-message JSON contracts. Follow those contracts when adapting or adding agents.
 - To add a new agent to the orchestrator sequence, implement the agent instructions file under `Agents/<NewAgent>/` and update `OrchestratorAgent` to include it in the pipeline.
 
-Quick run (recommended)
-1. Build the solution and run the host (use environment variables or `appsettings.*.json` for configuration):
+## 🏗️ Azure Infrastructure
 
-```powershell
-dotnet restore
-dotnet build foundry-demo-take4.sln -c Debug
+The solution includes comprehensive Infrastructure as Code (Bicep) templates for Azure deployment:
 
-# Configure PROJECT_ENDPOINT and any other env vars required, then:
-dotnet run --project src/Foundry.Agents
-```
+### Infrastructure Components
+- **Azure Container Apps** - Scalable hosting for Foundry Agents with scale-to-zero capability
+- **Azure Functions** - External Signals API endpoints with consumption pricing
+- **Azure Key Vault** - Secure storage for secrets and agent configurations  
+- **Application Insights** - Centralized monitoring and telemetry
+- **Logic Apps** - Agent triggers and email automation workflows
+- **Managed Identities** - Secure service-to-service authentication
 
-2. After a successful run the orchestrator will write `docs/last_agent_output.json` and may create `docs/energy_measures_<timestamp>.png` when Energy output is available.
+### Deployment Templates
+- **`main.bicep`** - Production infrastructure with enterprise features
+- **`main-dev.bicep`** - Cost-optimized development environment
+- **`main-complete.bicep`** - Full-featured deployment with all components
 
-Configuration
+### Cost Estimates
+- **Development**: ~$8-35/month (Free/Basic tiers)
+- **Production**: ~$33-135/month (Scale-to-zero, consumption pricing)
+
+📖 **See `infra/README.md` for complete deployment documentation**
+
+## ⚙️ Configuration
+
+### Application Settings
 - `Project:Endpoint` — persistent agents service endpoint
 - `Project:ModelDeploymentName` — model deployment id (when creating agents)
+- `Azure:KeyVaultName` — Key Vault name for secure configuration (production)
+- `Azure:UseManagedIdentity` — enable managed identity authentication (production)
 
-Notes
-- Agent instruction markdown is stored in `Agents/<Agent>/` and is loaded at runtime by the host. Runtime artifacts (agent ids and temporary run locks) are intentionally ignored by git.
-- The repository previously contained step-by-step instructions for running local tool servers (ExternalSignals.Api). The current focus is on the persisted-agent workflow and the Orchestrator; if you still want to run a local ExternalSignals service, start it separately and set `OpenApi:BaseUrl`.
+### Environment Variables
+- `PROJECT_ENDPOINT` — AI Foundry project API URL
+- `MODEL_DEPLOYMENT_NAME` — AI model deployment name
+- `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` — Azure authentication (if not using managed identity)
 
-Testing
+## 📋 Development Notes
+- Agent instruction markdown is stored in `Agents/<Agent>/` and is loaded at runtime by the host
+- Runtime artifacts (agent ids and temporary run locks) are intentionally ignored by git
+- The ExternalSignals.Api provides data endpoints and can be run locally or deployed to Azure Functions
+- For production deployment, use the provided Bicep templates for proper Azure resource configuration
+
+## 🧪 Testing
 
 ```powershell
+# Run unit tests
 dotnet test tests/Foundry.Agents.Tests/Foundry.Agents.Tests.csproj -c Debug --no-build
+
+# Infrastructure validation
+cd infra
+.\deploy.ps1 -Environment dev -WhatIf
 ```
+
+## 📚 Additional Resources
+
+- **Infrastructure Guide**: `infra/README.md` - Complete Azure deployment documentation
+- **Architecture Overview**: `infra/DEPLOYMENT-SUMMARY.md` - Infrastructure components and costs
+- **Agent Instructions**: `Agents/*/` - Individual agent configuration and contracts
+- **API Documentation**: `src/ExternalSignals.Api/` - External data endpoints
