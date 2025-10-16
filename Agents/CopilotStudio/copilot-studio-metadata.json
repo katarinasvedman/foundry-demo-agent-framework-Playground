@@ -1,0 +1,16 @@
+{
+  "type": "copilot_studio",
+  "bot_name": "Energy Analysis Assistant",
+  "bot_id": "example-bot-123",
+  "created_date": "2025-10-15T00:00:00Z",
+  "description": "Copilot Studio bot for energy analysis and recommendations",
+  "metadata": {
+    "version": "1.0",
+    "capabilities": [
+      "energy_analysis",
+      "conversation",
+      "recommendations"
+    ],
+    "integration_type": "CopilotStudio"
+  }
+}

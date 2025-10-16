@@ -97,6 +97,7 @@ var builder = Host.CreateDefaultBuilder(args)
         // Register Compute, Orchestrator and Email assistant
         //services.AddSingleton<Foundry.Agents.Agents.Compute.ComputeAgent>();
         services.AddSingleton<Foundry.Agents.Agents.Orchestrator.OrchestratorAgent>();
+        services.AddSingleton<Foundry.Agents.Agents.CopilotStudio.CopilotStudioAgent>();
         //services.AddSingleton<Foundry.Agents.Agents.EmailAssistant.EmailAssistantAgent>();
         //services.AddHttpClient<OpenApiTool>();
         //services.AddSingleton<OpenApiTool>();

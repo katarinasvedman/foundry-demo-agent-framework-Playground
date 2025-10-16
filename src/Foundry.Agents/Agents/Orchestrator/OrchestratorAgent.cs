@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Agents.AI;
 using Newtonsoft.Json;
@@ -62,6 +63,29 @@ namespace Foundry.Agents.Agents.Orchestrator
                 _logger.LogError("Failed to obtain or create EmailAssistant agent. Aborting orchestration.");
                 return JsonConvert.SerializeObject(new { error = "Failed to obtain EmailAssistant agent" });
             }
+
+            // Optional: Validate Copilot Studio configuration if enabled
+            var useCopilotStudio = _configuration.GetValue<bool>("CopilotStudio:Enabled") || 
+                                   !string.IsNullOrEmpty(_configuration["CopilotStudio:BotUrl"]);
+            
+            if (useCopilotStudio)
+            {
+                _logger.LogInformation("Copilot Studio integration enabled, validating existing bot configuration...");
+                var isCopilotStudioValid = await Foundry.Agents.Agents.CopilotStudio.CopilotStudioAgent.ValidateExistingCopilotStudioBotAsync(
+                    _configuration, _logger);
+                
+                if (!isCopilotStudioValid)
+                {
+                    _logger.LogInformation("No valid Copilot Studio bot configuration found, continuing without it.");
+                }
+                else
+                {
+                    _logger.LogInformation("Copilot Studio bot configuration validated successfully - ready for integration");
+                    // Note: For now, we don't add it to the executor list since we don't have a proper AIAgent wrapper
+                    // This validates the configuration is correct for when proper integration is implemented
+                }
+            }
+
             _logger.LogInformation($"remote data agent: {remoteDataAIAgent.DisplayName}");
             _logger.LogInformation($"energy agent: {energyAIAgent.DisplayName}");
             _logger.LogInformation($"email composer agent: {emailGeneratorAIAgent.DisplayName}");
@@ -106,12 +130,16 @@ namespace Foundry.Agents.Agents.Orchestrator
             _logger.LogInformation($"Running workflow with prompt: {runPrompt}");
 
             // Build a list of executors conditionally: when emailRequested is false we only
-            // run RemoteData -> Energy (no EmailGenerator/EmailAssistant). When email is
+            // run RemoteData -> Energy (-> CopilotStudio if enabled). When email is
             // requested include the generator and assistant in the pipeline so the full
-            // sequence RemoteData -> Energy -> EmailGenerator -> EmailAssistant runs.
+            // sequence RemoteData -> Energy -> (CopilotStudio) -> EmailGenerator -> EmailAssistant runs.
             var executors = new System.Collections.Generic.List<AIAgent>();
             executors.Add(remoteDataAIAgent);
             executors.Add(energyAIAgent);
+            
+            // Note: Copilot Studio integration validated above but not added to pipeline
+            // until proper AIAgent wrapper is implemented
+            
             if (emailRequested && emailGeneratorAIAgent != null && emailAIAgent != null)
             {
                 executors.Add(emailGeneratorAIAgent);

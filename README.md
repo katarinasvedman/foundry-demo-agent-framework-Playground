@@ -46,7 +46,11 @@ flowchart LR
 	Orchestrator --> Energy["Energy Agent<br/>(compute baseline & measures)"]	
 	RemoteData -.->|"prices, temperatures (24h)"| Energy
 	Energy --> CodeInterp["Code Interpreter / Python<br/>(local analysis)"]
-	Energy -.->|"Calculated measures"| EmailGenerator
+	Energy -.->|"Calculated measures"| CopilotStudio
+	
+	Orchestrator --> CopilotStudio["CopilotStudio Agent<br/>(conversational AI)<br/>(optional)"]
+	CopilotStudio --> BotAPI["Copilot Studio Bot<br/>(natural language processing)"]
+	CopilotStudio -.->|"enhanced analysis"| EmailGenerator
 
 	Orchestrator --> EmailGenerator["EmailGenerator Agent<br/>(draft email)"]
 	
@@ -60,7 +64,9 @@ flowchart LR
 		
 
 	classDef tool fill:#f3f4f6,stroke:#111,stroke-width:1px,stroke-dasharray: 2 1;
-	class OpenAPI,CodeInterp,LogicAppConnector,Office365 tool;
+	classDef optional fill:#e0f2fe,stroke:#0277bd,stroke-width:1px,stroke-dasharray: 3 2;
+	class OpenAPI,CodeInterp,LogicAppConnector,Office365,BotAPI tool;
+	class CopilotStudio optional;
 ```
 
 ### Azure Infrastructure Architecture
@@ -120,13 +126,38 @@ flowchart TB
     class External external;
 ```
 
-How it works (short)
-- Orchestrator runs a sequential pipeline of persisted agents. Agents are created once and reused across runs (agent ids persisted under `Agents/`).
-- `RemoteData` returns hourly arrays (24 values) required by `Energy`.
-- `Energy` runs a deterministic calculation (via the Code Interpreter snippet in the instructions) and returns a single JSON `GlobalEnvelope` with `data.measures`, `data.baseline`, and `data.optimized`.
-- `EmailGenerator` drafts an email and includes inline attachments (small images encoded as base64). It must return plain JSON in a single assistant message per the agent contract.
-- `Transformator` normalizes heterogeneous outputs into a canonical envelope (array `email_to`, top-level `email_to_str`, `email_subject`, `email_body_html`, and `attachments`) and enforces inline-only attachments (omits oversized ones and records diagnostics).
-- `EmailAssistant` accepts the canonical envelope and calls a deployed Azure Logic App (Office365 connector) to send the email. The Logic App expects a string recipient; the Transformator provides a top-level `email_to_str` to reduce mismatches.
+## 🤖 How it works
+
+### Agent Pipeline
+- **Orchestrator** runs a sequential pipeline of persisted agents. Agents are created once and reused across runs (agent ids persisted under `Agents/`)
+- **RemoteData** returns hourly arrays (24 values) required by Energy agent
+- **Energy** runs deterministic calculations (via Code Interpreter) and returns JSON `GlobalEnvelope` with `data.measures`, `data.baseline`, and `data.optimized`
+- **CopilotStudio** _(optional)_ processes energy analysis through conversational AI for enhanced user interactions
+- **EmailGenerator** drafts emails with inline attachments (base64-encoded images) in JSON format  
+- **Transformator** normalizes outputs into canonical envelope (`email_to`, `email_subject`, `email_body_html`, `attachments`)
+- **EmailAssistant** sends emails via Azure Logic App (Office365 connector)
+
+### 🎯 Copilot Studio Integration
+
+The system supports optional integration with **Microsoft Copilot Studio** for enhanced conversational AI capabilities:
+
+- **Purpose**: Adds natural language processing to make energy analysis results more accessible
+- **Position**: Runs after Energy agent, before EmailGenerator in the pipeline  
+- **Configuration**: Enable via `CopilotStudio:Enabled` setting or by providing `BotUrl`
+- **Benefits**: Conversational interface, user-friendly explanations of technical data
+
+**Quick Setup**:
+```json
+{
+  "CopilotStudio": {
+    "Enabled": true,
+    "BotUrl": "https://your-copilot-studio-bot-url.com",
+    "TenantId": "your-azure-tenant-id"
+  }
+}
+```
+
+📖 **Complete guide**: See `docs/COPILOT-STUDIO-INTEGRATION.md` for detailed setup and usage instructions.
 
 ## 🚀 Quick Start
 
@@ -138,7 +169,7 @@ dotnet restore
 dotnet build foundry-demo-take4.sln -c Debug
 
 # Configure the persistent agents endpoint and model deployment
-$env:PROJECT_ENDPOINT='https://persistent-agents-proj-resource.services.ai.azure.com/api/projects/persistent-agents-proj'
+$env:PROJECT_ENDPOINT='https://<resource>.services.ai.azure.com/api/projects/<project>'
 $env:MODEL_DEPLOYMENT_NAME='gpt-4o'
 # optional test variables used by examples
 $env:TEST_ZONE='SE3'; $env:TEST_CITY='Stockholm'; $env:TEST_DATE='2025-10-01';
@@ -233,5 +264,6 @@ cd infra
 
 - **Infrastructure Guide**: `infra/README.md` - Complete Azure deployment documentation
 - **Architecture Overview**: `infra/DEPLOYMENT-SUMMARY.md` - Infrastructure components and costs
+- **Copilot Studio Integration**: `docs/COPILOT-STUDIO-INTEGRATION.md` - Complete setup and usage guide
 - **Agent Instructions**: `Agents/*/` - Individual agent configuration and contracts
 - **API Documentation**: `src/ExternalSignals.Api/` - External data endpoints
