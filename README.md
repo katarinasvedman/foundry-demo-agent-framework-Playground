@@ -1,7 +1,7 @@
 
 # Foundry Demo — persisted AI agents (C#)
 
-This repository demonstrates persisted AI "agents" hosted in a .NET app with a comprehensive Azure infrastructure for production deployment. It includes a multi-agent orchestration system that runs sequential pipelines and captures outputs, plus complete Infrastructure as Code (Bicep) templates for Azure deployment.
+This repository demonstrates persisted AI "agents" hosted in Azure AI Foundry with a comprehensive Azure infrastructure for production deployment. It includes a multi-agent orchestration system, using the brand new Microsoft Agent Framework, that runs sequential pipelines and captures outputs, plus complete Infrastructure as Code (Bicep) templates for Azure deployment.
 
 ## 📁 What you'll find
 
