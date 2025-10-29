@@ -30,19 +30,26 @@ var builder = Host.CreateDefaultBuilder(args)
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "src", "Foundry.Agents", "appsettings.json")
         };
 
+        // Optimize: Find first existing file and use it, avoiding duplicate checks
+        string? foundCandidate = null;
         foreach (var candidate in candidates)
         {
             if (File.Exists(candidate))
             {
+                foundCandidate = candidate;
                 cfg.AddJsonFile(candidate, optional: false, reloadOnChange: true);
+                break; // Found the config file, no need to check others
             }
         }
 
-        // Also try environment-specific variants next to any candidate
-        foreach (var candidate in candidates)
+        // Also try environment-specific variant next to the found candidate
+        if (foundCandidate != null)
         {
-            var envPath = candidate.Replace("appsettings.json", $"appsettings.{envName}.json");
-            if (File.Exists(envPath)) cfg.AddJsonFile(envPath, optional: true, reloadOnChange: true);
+            var envPath = foundCandidate.Replace("appsettings.json", $"appsettings.{envName}.json");
+            if (File.Exists(envPath))
+            {
+                cfg.AddJsonFile(envPath, optional: true, reloadOnChange: true);
+            }
         }
 
         cfg.AddEnvironmentVariables();

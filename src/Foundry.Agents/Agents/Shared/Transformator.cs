@@ -212,88 +212,79 @@ namespace Foundry.Agents.Agents.Shared
                     // attempts to extract and parse a JSON object substring.
                     if (!emailFound && energyFound)
                     {
-                        try
+                        bool emailRecovered = false;
+                        foreach (var el2 in root.EnumerateArray())
                         {
-                            foreach (var el2 in root.EnumerateArray())
+                            if (emailRecovered) break; // Early exit if we found email
+                            
+                            if (el2.ValueKind != JsonValueKind.String) continue;
+                            var s2 = el2.GetString() ?? string.Empty;
+                            if (string.IsNullOrWhiteSpace(s2)) continue;
+                            // quick marker check to avoid unnecessary parsing
+                            if (!(s2.Contains("email_to") || s2.Contains("\"agent\"") || s2.Contains("EmailGenerator"))) continue;
+
+                            var candidateText = s2.Trim();
+                            if (candidateText.StartsWith("```"))
                             {
-                                if (el2.ValueKind != JsonValueKind.String) continue;
-                                var s2 = el2.GetString() ?? string.Empty;
-                                if (string.IsNullOrWhiteSpace(s2)) continue;
-                                // quick marker check to avoid unnecessary parsing
-                                if (!(s2.Contains("email_to") || s2.Contains("\"agent\"") || s2.Contains("EmailGenerator"))) continue;
-
-                                var candidateText = s2.Trim();
-                                if (candidateText.StartsWith("```"))
+                                var idx2 = candidateText.IndexOf('\n');
+                                if (idx2 >= 0)
                                 {
-                                    var idx2 = candidateText.IndexOf('\n');
-                                    if (idx2 >= 0)
-                                    {
-                                        var rest2 = candidateText.Substring(idx2 + 1);
-                                        if (rest2.TrimEnd().EndsWith("```")) rest2 = rest2.Substring(0, rest2.Length - 3).TrimEnd();
-                                        candidateText = rest2;
-                                    }
-                                }
-                                else if (candidateText.StartsWith("`") && candidateText.EndsWith("`"))
-                                {
-                                    candidateText = candidateText.Trim('`').Trim();
-                                }
-
-                                // Try parsing the whole cleaned string first
-                                try
-                                {
-                                    var parsedCandidate = JsonSerializer.Deserialize<JsonElement>(candidateText);
-                                    if (parsedCandidate.ValueKind == JsonValueKind.Object)
-                                    {
-                                        // found an email object embedded as a string
-                                        parsed = parsedCandidate;
-                                        logger?.LogInformation("Transformator: recovered email element from string after initial selection of energy");
-                                        break;
-                                    }
-                                }
-                                catch
-                                {
-                                    // If full parse fails, try to extract the first balanced { ... } block
-                                    try
-                                    {
-                                        int start2 = candidateText.IndexOf('{');
-                                        if (start2 >= 0)
-                                        {
-                                            int depth2 = 0;
-                                            for (int i2 = start2; i2 < candidateText.Length; i2++)
-                                            {
-                                                if (candidateText[i2] == '{') depth2++;
-                                                else if (candidateText[i2] == '}')
-                                                {
-                                                    depth2--;
-                                                    if (depth2 == 0)
-                                                    {
-                                                        var sub2 = candidateText.Substring(start2, i2 - start2 + 1);
-                                                        try
-                                                        {
-                                                            var parsedSub2 = JsonSerializer.Deserialize<JsonElement>(sub2);
-                                                            if (parsedSub2.ValueKind == JsonValueKind.Object)
-                                                            {
-                                                                parsed = parsedSub2;
-                                                                logger?.LogInformation("Transformator: extracted and parsed embedded JSON email object from string");
-                                                                break;
-                                                            }
-                                                        }
-                                                        catch { }
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                            // if we already set parsed to an object, break out of outer loop
-                                            if (parsed.ValueKind == JsonValueKind.Object) break;
-                                        }
-                                    }
-                                    catch { }
+                                    var rest2 = candidateText.Substring(idx2 + 1);
+                                    if (rest2.TrimEnd().EndsWith("```")) rest2 = rest2.Substring(0, rest2.Length - 3).TrimEnd();
+                                    candidateText = rest2;
                                 }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            logger?.LogWarning(ex, "Transformator: secondary pass to recover email element failed");
+                            else if (candidateText.StartsWith("`") && candidateText.EndsWith("`"))
+                            {
+                                candidateText = candidateText.Substring(1, candidateText.Length - 2).Trim();
+                            }
+
+                            // Try parsing the whole cleaned string first
+                            try
+                            {
+                                var parsedCandidate = JsonSerializer.Deserialize<JsonElement>(candidateText);
+                                if (parsedCandidate.ValueKind == JsonValueKind.Object)
+                                {
+                                    // found an email object embedded as a string
+                                    parsed = parsedCandidate;
+                                    emailRecovered = true;
+                                    logger?.LogInformation("Transformator: recovered email element from string after initial selection of energy");
+                                    break;
+                                }
+                            }
+                            catch
+                            {
+                                // If full parse fails, try to extract the first balanced { ... } block
+                                int start2 = candidateText.IndexOf('{');
+                                if (start2 >= 0)
+                                {
+                                    int depth2 = 0;
+                                    for (int i2 = start2; i2 < candidateText.Length; i2++)
+                                    {
+                                        if (candidateText[i2] == '{') depth2++;
+                                        else if (candidateText[i2] == '}')
+                                        {
+                                            depth2--;
+                                            if (depth2 == 0)
+                                            {
+                                                var sub2 = candidateText.Substring(start2, i2 - start2 + 1);
+                                                try
+                                                {
+                                                    var parsedSub2 = JsonSerializer.Deserialize<JsonElement>(sub2);
+                                                    if (parsedSub2.ValueKind == JsonValueKind.Object)
+                                                    {
+                                                        parsed = parsedSub2;
+                                                        emailRecovered = true;
+                                                        logger?.LogInformation("Transformator: extracted and parsed embedded JSON email object from string");
+                                                    }
+                                                }
+                                                catch { }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -395,7 +386,7 @@ namespace Foundry.Agents.Agents.Shared
                         }
                         else if (candidateText.StartsWith("`") && candidateText.EndsWith("`"))
                         {
-                            candidateText = candidateText.Trim('`').Trim();
+                            candidateText = candidateText.Substring(1, candidateText.Length - 2).Trim();
                         }
 
                         try
