@@ -12,11 +12,29 @@ namespace Foundry.Agents.Agents.Orchestrator
     {
         private readonly ILogger<OrchestratorAgent> _logger;
         private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
+        // Cache PersistentAgentsClient to avoid creating new instances on every run
+        private Azure.AI.Agents.Persistent.PersistentAgentsClient? _persistentAgentsClient;
+        private readonly object _clientLock = new object();
 
         public OrchestratorAgent(ILogger<OrchestratorAgent> logger, Microsoft.Extensions.Configuration.IConfiguration configuration)
         {
             _logger = logger;
             _configuration = configuration;
+        }
+        
+        private Azure.AI.Agents.Persistent.PersistentAgentsClient GetOrCreateClient(string endpoint)
+        {
+            if (_persistentAgentsClient == null)
+            {
+                lock (_clientLock)
+                {
+                    if (_persistentAgentsClient == null)
+                    {
+                        _persistentAgentsClient = new Azure.AI.Agents.Persistent.PersistentAgentsClient(endpoint, new Azure.Identity.DefaultAzureCredential());
+                    }
+                }
+            }
+            return _persistentAgentsClient;
         }
 
         // Run the orchestration for a given zone/city/date. Returns the final GlobalEnvelope-like JSON string.
@@ -27,8 +45,8 @@ namespace Foundry.Agents.Agents.Orchestrator
             var runId = Guid.NewGuid().ToString();
 
             var endpoint = System.Environment.GetEnvironmentVariable("PROJECT_ENDPOINT") ?? "http://localhost:3000";
-            // Create a PersistentAgentsClient for the provided endpoint. When PROJECT_ENDPOINT is https, DefaultAzureCredential will be used.
-            var persistentAgentsClient = new Azure.AI.Agents.Persistent.PersistentAgentsClient(endpoint, new Azure.Identity.DefaultAzureCredential());
+            // Get or create a cached PersistentAgentsClient for the provided endpoint
+            var persistentAgentsClient = GetOrCreateClient(endpoint);
 
             // Prefer persisted local agent ids (Agents/<Agent>/agent-id.txt). The
             // GetOrCreateAIAgentAsync helper (used below) already reads persisted
@@ -374,7 +392,7 @@ namespace Foundry.Agents.Agents.Orchestrator
                     string? formatted = null;
                     bool parsedOk = false;
 
-                    // First attempt: direct parse with System.Text.Json
+                    // Single attempt: direct parse with System.Text.Json
                     try
                     {
                         var doc = System.Text.Json.JsonDocument.Parse(sanitized);
@@ -384,53 +402,44 @@ namespace Foundry.Agents.Agents.Orchestrator
                     catch (Exception parseEx)
                     {
                         _logger.LogDebug(parseEx, "Direct JSON parse failed for Energy output; will attempt substring extraction");
-                    }
-
-                    // Second attempt: try to find a balanced JSON object/array substring (first '{' or '[' to matching brace)
-                    if (!parsedOk)
-                    {
-                        try
+                        
+                        // Fallback: try to find a balanced JSON object/array substring (first '{' or '[' to matching brace)
+                        var s = sanitized;
+                        int start = s.IndexOf('{');
+                        if (start < 0) start = s.IndexOf('[');
+                        if (start >= 0)
                         {
-                            var s = sanitized;
-                            int start = s.IndexOf('{');
-                            if (start < 0) start = s.IndexOf('[');
-                            if (start >= 0)
+                            char open = s[start];
+                            char close = open == '{' ? '}' : ']';
+                            int depth = 0;
+                            int end = -1;
+                            
+                            for (int i = start; i < s.Length; i++)
                             {
-                                int depth = 0;
-                                char open = s[start];
-                                char close = open == '{' ? '}' : ']';
-                                int end = -1;
-                                for (int i = start; i < s.Length; i++)
+                                var c = s[i];
+                                if (c == open) depth++;
+                                else if (c == close) depth--;
+                                if (depth == 0)
                                 {
-                                    var c = s[i];
-                                    if (c == open) depth++;
-                                    else if (c == close) depth--;
-                                    if (depth == 0)
-                                    {
-                                        end = i;
-                                        break;
-                                    }
-                                }
-
-                                if (end > start)
-                                {
-                                    var candidate = s.Substring(start, end - start + 1);
-                                    try
-                                    {
-                                        var doc2 = System.Text.Json.JsonDocument.Parse(candidate);
-                                        formatted = System.Text.Json.JsonSerializer.Serialize(doc2.RootElement, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                                        parsedOk = true;
-                                    }
-                                    catch (Exception ex2)
-                                    {
-                                        _logger.LogDebug(ex2, "Substring JSON parse failed for candidate payload");
-                                    }
+                                    end = i;
+                                    break;
                                 }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogDebug(ex, "Failed during JSON substring extraction attempt");
+
+                            if (end > start)
+                            {
+                                var candidate = s.Substring(start, end - start + 1);
+                                try
+                                {
+                                    var doc2 = System.Text.Json.JsonDocument.Parse(candidate);
+                                    formatted = System.Text.Json.JsonSerializer.Serialize(doc2.RootElement, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                                    parsedOk = true;
+                                }
+                                catch (Exception ex2)
+                                {
+                                    _logger.LogDebug(ex2, "Substring JSON parse failed for candidate payload");
+                                }
+                            }
                         }
                     }
 
@@ -599,6 +608,12 @@ namespace Foundry.Agents.Agents.Orchestrator
 
             try
             {
+                // Quick check: if input is too long and doesn't look like JSON, truncate early
+                if (input.Length > 2000 && !input.TrimStart().StartsWith("{") && !input.TrimStart().StartsWith("["))
+                {
+                    return input.Substring(0, 2000) + "... (truncated)";
+                }
+                
                 // If it looks like JSON, try to parse and sanitize attachments
                 var s = input.Trim();
                 if ((s.StartsWith("{") && s.EndsWith("}")) || (s.StartsWith("[") && s.EndsWith("]")))
@@ -607,44 +622,76 @@ namespace Foundry.Agents.Agents.Orchestrator
                     {
                         using var doc = System.Text.Json.JsonDocument.Parse(s);
                         var root = doc.RootElement;
+                        
+                        // Use StringBuilder for more efficient string concatenation
+                        var sb = new System.Text.StringBuilder(Math.Min(s.Length, 2000));
+                        
                         // Walk and sanitize
-                        string SanitizedElement(System.Text.Json.JsonElement el)
+                        void SanitizeElement(System.Text.Json.JsonElement el)
                         {
                             switch (el.ValueKind)
                             {
                                 case System.Text.Json.JsonValueKind.Object:
-                                    var props = new System.Collections.Generic.List<string>();
+                                    sb.Append('{');
+                                    bool first = true;
                                     foreach (var p in el.EnumerateObject())
                                     {
-                                        if (string.Equals(p.Name, "content_base64", StringComparison.OrdinalIgnoreCase) || string.Equals(p.Name, "content", StringComparison.OrdinalIgnoreCase))
+                                        if (!first) sb.Append(", ");
+                                        first = false;
+                                        
+                                        sb.Append('"').Append(p.Name).Append("\": ");
+                                        
+                                        if (string.Equals(p.Name, "content_base64", StringComparison.OrdinalIgnoreCase) || 
+                                            string.Equals(p.Name, "content", StringComparison.OrdinalIgnoreCase))
                                         {
-                                            var placeholder = "<attachment: (content suppressed)>";
-                                            props.Add($"\"{p.Name}\": \"{placeholder}\"");
-                                            continue;
+                                            sb.Append("\"<attachment: (content suppressed)>\"");
                                         }
-                                        var v = SanitizedElement(p.Value);
-                                        props.Add($"\"{p.Name}\": {v}");
+                                        else
+                                        {
+                                            SanitizeElement(p.Value);
+                                        }
                                     }
-                                    return "{" + string.Join(", ", props) + "}";
+                                    sb.Append('}');
+                                    break;
 
                                 case System.Text.Json.JsonValueKind.Array:
-                                    var items = new System.Collections.Generic.List<string>();
-                                    foreach (var it in el.EnumerateArray()) items.Add(SanitizedElement(it));
-                                    return "[" + string.Join(", ", items) + "]";
+                                    sb.Append('[');
+                                    bool firstItem = true;
+                                    foreach (var it in el.EnumerateArray())
+                                    {
+                                        if (!firstItem) sb.Append(", ");
+                                        firstItem = false;
+                                        SanitizeElement(it);
+                                    }
+                                    sb.Append(']');
+                                    break;
 
                                 case System.Text.Json.JsonValueKind.String:
                                     var txt = el.GetString() ?? string.Empty;
-                                    if (txt.Length > 200) return "\"" + txt.Substring(0, 200) + "... (truncated)\"";
-                                    return JsonConvert.SerializeObject(txt);
+                                    if (txt.Length > 200)
+                                    {
+                                        sb.Append('"').Append(txt, 0, 200).Append("... (truncated)\"");
+                                    }
+                                    else
+                                    {
+                                        sb.Append(JsonConvert.SerializeObject(txt));
+                                    }
+                                    break;
 
                                 default:
-                                    return el.ToString() ?? string.Empty;
+                                    sb.Append(el.ToString() ?? string.Empty);
+                                    break;
                             }
                         }
 
-                        var sanitized = SanitizedElement(root);
+                        SanitizeElement(root);
+                        var sanitized = sb.ToString();
+                        
                         // Keep overall length bounded
-                        if (sanitized.Length > 2000) sanitized = sanitized.Substring(0, 2000) + "... (truncated)";
+                        if (sanitized.Length > 2000)
+                        {
+                            return sanitized.Substring(0, 2000) + "... (truncated)";
+                        }
                         return sanitized;
                     }
                     catch { /* fallthrough to basic truncation */ }

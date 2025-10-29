@@ -46,6 +46,7 @@ namespace Foundry.Agents.Agents.Shared
                 bool energyFound = false;
                 JsonElement emailElement = default;
                 bool emailFound = false;
+                
                 foreach (var el in root.EnumerateArray())
                 {
                     JsonElement candidate = default;
@@ -61,27 +62,26 @@ namespace Foundry.Agents.Agents.Shared
                     {
                         // Try to parse the string as JSON (strip fences if present)
                         var s = el.GetString() ?? "";
+                        if (string.IsNullOrEmpty(s)) continue;
+                        
                         s = s.Trim();
+                        
+                        // Remove markdown code fences efficiently
                         if (s.StartsWith("```"))
                         {
-                            // remove triple-backtick fences and optional language tag
                             var idx = s.IndexOf("\n");
                             if (idx >= 0)
                             {
-                                // remove first line if it's a fence marker like ```json
-                                var rest = s.Substring(idx + 1);
-                                // drop trailing fence if present
-                                if (rest.TrimEnd().EndsWith("```"))
+                                s = s.Substring(idx + 1);
+                                if (s.TrimEnd().EndsWith("```"))
                                 {
-                                    rest = rest.TrimEnd();
-                                    rest = rest.Substring(0, rest.Length - 3).TrimEnd();
+                                    s = s.Substring(0, s.LastIndexOf("```")).TrimEnd();
                                 }
-                                s = rest;
                             }
                         }
                         else if (s.StartsWith("`") && s.EndsWith("`"))
                         {
-                            s = s.Trim('`').Trim();
+                            s = s.Substring(1, s.Length - 2).Trim();
                         }
 
                         if (!string.IsNullOrEmpty(s))
@@ -99,43 +99,33 @@ namespace Foundry.Agents.Agents.Shared
                             catch
                             {
                                 // If full parse fails, try to extract the first JSON object substring from the string
-                                try
+                                int start = s.IndexOf('{');
+                                if (start >= 0)
                                 {
-                                    int start = s.IndexOf('{');
-                                    if (start >= 0)
+                                    int depth = 0;
+                                    for (int i = start; i < s.Length; i++)
                                     {
-                                        int depth = 0;
-                                        for (int i = start; i < s.Length; i++)
+                                        if (s[i] == '{') depth++;
+                                        else if (s[i] == '}')
                                         {
-                                            if (s[i] == '{') depth++;
-                                            else if (s[i] == '}')
+                                            depth--;
+                                            if (depth == 0)
                                             {
-                                                depth--;
-                                                if (depth == 0)
+                                                var sub = s.Substring(start, i - start + 1);
+                                                try
                                                 {
-                                                    var sub = s.Substring(start, i - start + 1);
-                                                    try
+                                                    var parsedSub = JsonSerializer.Deserialize<JsonElement>(sub);
+                                                    if (parsedSub.ValueKind == JsonValueKind.Object)
                                                     {
-                                                        var parsedSub = JsonSerializer.Deserialize<JsonElement>(sub);
-                                                        if (parsedSub.ValueKind == JsonValueKind.Object)
-                                                        {
-                                                            candidate = parsedSub;
-                                                            hasCandidate = true;
-                                                        }
+                                                        candidate = parsedSub;
+                                                        hasCandidate = true;
                                                     }
-                                                    catch
-                                                    {
-                                                        // ignore
-                                                    }
-                                                    break;
                                                 }
+                                                catch { /* ignore */ }
+                                                break;
                                             }
                                         }
                                     }
-                                }
-                                catch
-                                {
-                                    // ignore
                                 }
                             }
                         }

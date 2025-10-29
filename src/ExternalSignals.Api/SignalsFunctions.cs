@@ -11,6 +11,9 @@ namespace ExternalSignals.Api;
 
 public static class SignalsFunctions
 {
+    // Cache TimeZoneInfo to avoid repeated lookups
+    private static readonly TimeZoneInfo StockholmTimeZone = TZConvert.GetTimeZoneInfo("Europe/Stockholm");
+    
     static IReadOnlyList<double> GenerateDayAheadPrices(DateTime date)
     {
         int seed = int.Parse(date.ToString("yyyyMMdd"));
@@ -60,8 +63,7 @@ public static class SignalsFunctions
         var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
         string zone = query["zone"] ?? "SE3";
         string dateStr = query["date"];
-        var tz = TZConvert.GetTimeZoneInfo("Europe/Stockholm");
-        var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+        var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, StockholmTimeZone);
         DateTime date;
         if (string.IsNullOrWhiteSpace(dateStr))
         {
@@ -102,8 +104,7 @@ public static class SignalsFunctions
         var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
         string city = query["city"] ?? "Stockholm";
         string dateStr = query["date"];
-        var tz = TZConvert.GetTimeZoneInfo("Europe/Stockholm");
-        var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+        var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, StockholmTimeZone);
         DateTime date;
         if (string.IsNullOrWhiteSpace(dateStr))
         {

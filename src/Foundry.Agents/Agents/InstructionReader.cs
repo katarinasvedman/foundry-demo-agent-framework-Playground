@@ -1,10 +1,14 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 
 namespace Foundry.Agents.Agents
 {
     public static class InstructionReader
     {
+        // Cache for resolved file paths to avoid repeated File.Exists checks
+        private static readonly ConcurrentDictionary<string, string?> _pathCache = new ConcurrentDictionary<string, string?>();
+        
         // Read the section for agentName from Agents/RemoteData/RemoteDataInstructions.md
         // Prefer a per-agent file at Agents/<Agent>/<Agent>Instructions.md, falling back to the shared RemoteData file.
         // If neither exists, return empty string.
@@ -12,6 +16,29 @@ namespace Foundry.Agents.Agents
         {
             try
             {
+                // Check cache first for already resolved paths
+                var cacheKey = $"agent:{agentName}";
+                if (_pathCache.TryGetValue(cacheKey, out var cachedPath))
+                {
+                    if (!string.IsNullOrEmpty(cachedPath))
+                    {
+                        try
+                        {
+                            return File.ReadAllText(cachedPath).Trim();
+                        }
+                        catch
+                        {
+                            // If cached path fails, remove from cache and continue
+                            _pathCache.TryRemove(cacheKey, out _);
+                        }
+                    }
+                    else if (cachedPath == null)
+                    {
+                        // Cached negative result (no file found)
+                        return string.Empty;
+                    }
+                }
+                
                 // Candidate locations for per-agent instruction files. Hosted runs may execute from
                 // the repository root or from inside the src/Foundry.Agents folder. Try both places
                 // and also AppContext.BaseDirectory variants for robustness.
@@ -29,6 +56,8 @@ namespace Foundry.Agents.Agents
                     {
                         if (File.Exists(perAgentPath))
                         {
+                            // Cache the successful path for future use
+                            _pathCache.TryAdd(cacheKey, perAgentPath);
                             return File.ReadAllText(perAgentPath).Trim();
                         }
                     }
@@ -64,7 +93,12 @@ namespace Foundry.Agents.Agents
                     }
                 }
 
-                if (string.IsNullOrEmpty(txt)) return string.Empty;
+                if (string.IsNullOrEmpty(txt))
+                {
+                    // Cache negative result
+                    _pathCache.TryAdd(cacheKey, null);
+                    return string.Empty;
+                }
 
                 var header = $"# {agentName} Agent Instructions";
                 var idx = txt.IndexOf(header, StringComparison.OrdinalIgnoreCase);
