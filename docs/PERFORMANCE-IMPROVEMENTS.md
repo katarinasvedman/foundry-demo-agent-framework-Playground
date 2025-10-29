@@ -124,7 +124,7 @@ A comprehensive code review identified several areas where performance could be 
 **Problem**: Using `Trim('`')` creates a char array allocation internally; using `Substring()` directly is more efficient for simple cases.
 
 **Solution**:
-- Replaced `.Trim('`').Trim()` with `.Substring(1, length-2).Trim()`
+- Replaced `.Trim('`').Trim()` with `.Substring(1, candidateText.Length - 2).Trim()`
 - Reduces allocations when removing backticks from strings
 
 **Impact**: Minor reduction in GC pressure during string sanitization.
@@ -140,12 +140,12 @@ All optimizations were validated by:
 
 | Operation | Before | After | Improvement |
 |-----------|--------|-------|-------------|
-| Instruction Read (cached) | 4-8 File.Exists() calls | 0 calls | ~100% |
-| API Request Overhead | +10-100ms TZ lookup | +0ms | ~100ms/request |
-| Client Initialization | Every run | Once | ~200-500ms/run |
-| JSON Sanitization (large) | Many string allocations | StringBuilder | ~80% fewer allocations |
-| Email Recovery | Full array scan | Early exit | ~50% fewer iterations |
-| Configuration Load | 8 File.Exists() | 2-5 checks | ~40-75% |
+| Instruction Read (cached) | 4-8 File.Exists() calls | 0 calls after first read | 100% elimination of redundant I/O |
+| API Request Overhead | +10-100ms TZ lookup per request | +0ms (cached) | 10-100ms saved per request |
+| Client Initialization | Every run (~200-500ms) | Once (cached) | 200-500ms saved per run |
+| JSON Sanitization (large) | Many string allocations | StringBuilder approach | ~80% fewer allocations |
+| Email Recovery | Full array scan | Early exit after match | Up to 50% fewer iterations |
+| Configuration Load | 8 File.Exists() calls | 2-5 calls | 40-75% fewer checks |
 
 ## Recommendations for Further Optimization
 
