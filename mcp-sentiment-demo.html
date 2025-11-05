@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP Sentiment Analysis Demo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .input-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        textarea:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+        .analyze-btn {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: transform 0.2s;
+        }
+        .analyze-btn:hover {
+            transform: translateY(-2px);
+        }
+        .analyze-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .test-buttons {
+            margin-top: 10px;
+        }
+        .test-btn {
+            background: #e9ecef;
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            font-size: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 5px 0 0;
+        }
+        .test-btn:hover {
+            background: #d6dbdf;
+        }
+        .results-section {
+            margin-top: 20px;
+        }
+        .result-card {
+            background: #f8f9fa;
+            border-left: 4px solid #28a745;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 0 6px 6px 0;
+        }
+        .sentiment-result {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        .confidence-scores {
+            display: flex;
+            gap: 20px;
+            margin: 15px 0;
+        }
+        .score-item {
+            background: white;
+            padding: 10px 15px;
+            border-radius: 6px;
+            text-align: center;
+            flex: 1;
+        }
+        .score-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .score-value {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        .positive { color: #28a745; }
+        .neutral { color: #6c757d; }
+        .negative { color: #dc3545; }
+        .command-section {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            margin-top: 20px;
+        }
+        .command-title {
+            color: #9cdcfe;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        .command-line {
+            background: #2d2d30;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            word-break: break-all;
+        }
+        .copy-btn {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            font-size: 12px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+        .demo-badge {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a6f);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .tech-stack {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #666;
+        }
+        .tech-item {
+            background: #e9ecef;
+            padding: 5px 10px;
+            border-radius: 15px;
+        }
+        .instructions {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        .step {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧠 MCP Sentiment Analysis <span class="demo-badge">DEMO</span></h1>
+        <p class="subtitle">Azure AI Agent with Model Context Protocol (MCP) Integration via APIM</p>
+        
+        <div class="instructions">
+            <strong>📋 How to test:</strong>
+            <div class="step">1. Copy the command below</div>
+            <div class="step">2. Run it in PowerShell/Terminal</div>
+            <div class="step">3. See the results and logs</div>
+        </div>
+
+        <div class="input-section">
+            <label for="textInput"><strong>Enter text to analyze:</strong></label>
+            <textarea id="textInput" placeholder="Type or paste your text here for sentiment analysis...">I love sunny days and beautiful weather!</textarea>
+            
+            <div class="test-buttons">
+                <button class="test-btn" onclick="setTestText('I love sunny days and beautiful weather!')">😊 Positive</button>
+                <button class="test-btn" onclick="setTestText('This is incredibly frustrating and disappointing.')">😠 Negative</button>
+                <button class="test-btn" onclick="setTestText('The meeting went well and we accomplished our goals.')">😐 Neutral</button>
+                <button class="test-btn" onclick="setTestText('I cannot believe how amazing this experience has been! Absolutely wonderful!')">🌟 Very Positive</button>
+            </div>
+            
+            <button class="analyze-btn" onclick="generateCommand()">🚀 Generate Test Command</button>
+        </div>
+
+        <div id="commandSection" class="command-section">
+            <div class="command-title">📋 Run this command to test MCP Sentiment Analysis:</div>
+            <div class="command-line" id="commandLine">Click "Generate Test Command" above</div>
+            <button class="copy-btn" onclick="copyCommand()">📋 Copy Command</button>
+        </div>
+
+        <div class="result-card">
+            <div class="sentiment-result">💡 Expected Results:</div>
+            <div style="margin: 15px 0;">
+                <strong>🔍 What you'll see:</strong>
+                <ul style="margin-top: 10px;">
+                    <li>✅ <strong>Agent Creation:</strong> "SentimentAgent created successfully"</li>
+                    <li>✅ <strong>MCP Tool Call:</strong> "Approving MCP tool call: analyzeSentimentForOneOrMoreDocuments"</li>
+                    <li>✅ <strong>JSON Response:</strong> Sentiment scores and detailed analysis</li>
+                    <li>✅ <strong>APIM Integration:</strong> MCP server calls via Azure API Management</li>
+                </ul>
+            </div>
+            <div style="background: #e7f3ff; padding: 10px; border-radius: 4px; margin-top: 15px;">
+                <strong>🎯 This demonstrates:</strong> Complete end-to-end MCP integration with Azure AI Agents calling your APIM-hosted MCP server!
+            </div>
+        </div>
+    </div>
+
+    <div class="tech-stack">
+        <span class="tech-item">Azure AI Agents</span>
+        <span class="tech-item">Model Context Protocol</span>
+        <span class="tech-item">Azure APIM</span>
+        <span class="tech-item">TestClient Auto-Approval</span>
+    </div>
+
+    <script>
+        function setTestText(text) {
+            document.getElementById('textInput').value = text;
+            generateCommand();
+        }
+
+        function generateCommand() {
+            const textInput = document.getElementById('textInput');
+            const text = textInput.value.trim();
+            
+            if (!text) {
+                alert('Please enter some text to analyze.');
+                return;
+            }
+
+            const escapedText = text.replace(/"/g, '`"');
+            const command = `cd "C:\\Users\\kapeltol\\src-new\\FoundryDemo\\foundry-demo" && $env:SentimentAgent__Enabled="true"; $env:SentimentAgent__McpServerUrl="https://apim-love-kapeltol.azure-api.net/sentiment-mcp/mcp"; $env:PROJECT_ENDPOINT="https://persistent-agents-proj-resource.services.ai.azure.com/api/projects/persistent-agents-proj"; dotnet run --project src/Foundry.Agents.TestClient/Foundry.Agents.TestClient.csproj test "${escapedText}"`;
+            
+            document.getElementById('commandLine').textContent = command;
+        }
+
+        function copyCommand() {
+            const commandText = document.getElementById('commandLine').textContent;
+            if (commandText === "Click \"Generate Test Command\" above") {
+                alert('Please generate a command first by clicking "Generate Test Command"');
+                return;
+            }
+            
+            navigator.clipboard.writeText(commandText).then(function() {
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✅ Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            }).catch(function() {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = commandText;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✅ Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            });
+        }
+
+        // Generate initial command
+        window.onload = function() {
+            generateCommand();
+        };
+    </script>
+</body>
+</html>

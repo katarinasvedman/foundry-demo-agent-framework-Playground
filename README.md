@@ -3,15 +3,68 @@
 
 This repository demonstrates persisted AI "agents" hosted in Azure AI Foundry with a comprehensive Azure infrastructure for production deployment. It includes a multi-agent orchestration system, using the brand new Microsoft Agent Framework, that runs sequential pipelines and captures outputs, plus complete Infrastructure as Code (Bicep) templates for Azure deployment.
 
+## 🎯 **Operating Modes**
+
+**Default:** Full energy workflow pipeline (no environment variables needed)
+```powershell
+dotnet run --project src/Foundry.Agents -- --input "Analyze energy consumption trends"
+```
+
+**Feature Flags:** Set `FEATURE_FLAG` environment variable for single-agent modes:
+
+### 🎯 Sentiment Analysis Mode
+```powershell
+$env:FEATURE_FLAG = "Sentiment"
+dotnet run --project src/Foundry.Agents -- --input "I love sunny days!"
+```
+
+### 🤖 CopilotStudio Mode  
+```powershell
+$env:FEATURE_FLAG = "Copilot"
+dotnet run --project src/Foundry.Agents -- --input "Tell me a joke"
+```
+*(Requires Azure AD permissions: `CopilotStudio.Copilots.Invoke`)*
+
+---
+
+## 🚀 **Quick Start - MCP Sentiment Analysis Demo**
+
+**Start the Web Demo in VS Code:**
+
+1. **Press `Ctrl+Shift+P`** → Type **"Tasks: Run Task"** → Select **"🚀 Start MCP Web Demo"**
+2. **Or right-click** `src/Foundry.Agents.WebDemo/Foundry.Agents.WebDemo.csproj` → **"Open in Integrated Terminal"** → Run `dotnet run`  
+3. **Open browser:** http://localhost:5000
+
+**Features:**
+- 🎯 **One-click sentiment analysis** with live log streaming
+- 🤖 **Azure AI Agents** with Model Context Protocol (MCP) integration  
+- 📡 **APIM-hosted MCP server** for enterprise-grade sentiment analysis
+- ✅ **Auto-approval system** for seamless MCP tool execution
+- 🎨 **Professional web interface** with real-time workflow visibility
+
+**Test Options:**
+- **Web Demo:** Interactive UI with pre-built test cases and live logs
+- **Console Test:** Use task **"🧪 Test MCP Console"** for command-line testing
+
 ## 📁 What you'll find
 
 ### Application Code
 - `src/Foundry.Agents` — the host and DI wiring; the console app that builds and runs agents
 - `src/Foundry.Agents/Agents` — agent wrappers and the `Orchestrator` implementation
+- **`src/Foundry.Agents.WebDemo`** — **🚀 MCP Web Demo** with live sentiment analysis UI
+- **`src/Foundry.Agents.TestClient`** — **🧪 MCP Console Test** client with auto-approval
 - `src/ExternalSignals.Api` — Azure Functions app providing external data endpoints
 - `Agents/` — agent instruction markdown and runtime persisted artifacts (ignored by git)
 - `docs/` — orchestrator outputs (e.g. `last_agent_output.json`) and generated plots
 - `tests/` — unit tests
+
+### MCP Integration Demo
+**Model Context Protocol (MCP) with Azure AI Agents:**
+- **SentimentAgent** with MCP tool integration for Azure Language Service
+- **APIM-hosted MCP server** at `https://apim-love-kapeltol.azure-api.net/sentiment-mcp/mcp`
+- **Auto-approval system** for seamless MCP tool execution
+- **Web UI** with real-time log streaming and professional presentation
+- **Console client** for command-line testing and debugging
 
 ### Infrastructure as Code
 - `infra/` — Complete Azure infrastructure using Bicep templates
@@ -24,8 +77,10 @@ This repository demonstrates persisted AI "agents" hosted in Azure AI Foundry wi
   - `DEPLOYMENT-SUMMARY.md` — Complete infrastructure overview and costs
 
 High-level behavior
-- The host creates-or-fetches persisted agents (RemoteData, Energy, etc.) using the Persistent Agents SDK.
-- `Orchestrator` runs a sequential pipeline (RemoteData -> Energy) via an in-process workflow and streams events; the final assembled output is captured in-memory.
+- The host creates-or-fetches persisted agents (RemoteData, Energy, SentimentAgent, etc.) using the Persistent Agents SDK.
+- `Orchestrator` runs either:
+  - **SentimentAgent ONLY** (when `SentimentAgent:Enabled` is true) for dedicated text sentiment analysis
+  - **Standard pipeline** (RemoteData -> Energy -> optional agents) for energy analysis workflows
 - When the Energy output is present, it is pretty-printed to `docs/last_agent_output.json` and a plotting script (Python) is invoked to produce a PNG under `docs/`.
 
 Architecture diagram
@@ -46,7 +101,9 @@ flowchart LR
 	Orchestrator --> Energy["Energy Agent<br/>(compute baseline & measures)"]	
 	RemoteData -.->|"prices, temperatures (24h)"| Energy
 	Energy --> CodeInterp["Code Interpreter / Python<br/>(local analysis)"]
+	Energy -.->|"Calculated measures"| SentimentAgent["SentimentAgent<br/>(optional: text analysis)"]
 	Energy -.->|"Calculated measures"| CopilotStudio
+	SentimentAgent --> MCP["MCP Server<br/>(Azure Language Service)"]
 	
 	Orchestrator --> CopilotStudio["CopilotStudio Agent<br/>(conversational AI)<br/>(optional)"]
 	CopilotStudio --> BotAPI["Copilot Studio Bot<br/>(natural language processing)"]
@@ -132,10 +189,32 @@ flowchart TB
 - **Orchestrator** runs a sequential pipeline of persisted agents. Agents are created once and reused across runs (agent ids persisted under `Agents/`)
 - **RemoteData** returns hourly arrays (24 values) required by Energy agent
 - **Energy** runs deterministic calculations (via Code Interpreter) and returns JSON `GlobalEnvelope` with `data.measures`, `data.baseline`, and `data.optimized`
+- **SentimentAgent** _(optional)_ analyzes text sentiment using MCP server integration for enhanced text processing
 - **CopilotStudio** _(optional)_ processes energy analysis through conversational AI for enhanced user interactions
 - **EmailGenerator** drafts emails with inline attachments (base64-encoded images) in JSON format  
 - **Transformator** normalizes outputs into canonical envelope (`email_to`, `email_subject`, `email_body_html`, `attachments`)
 - **EmailAssistant** sends emails via Azure Logic App (Office365 connector)
+
+### 🎯 SentimentAgent Integration
+
+The system supports optional integration with **SentimentAgent** for advanced text sentiment analysis:
+
+- **Purpose**: Analyzes sentiment of text using Azure Language Service via MCP server integration
+- **Execution Mode**: When enabled, runs as **STANDALONE workflow** (bypasses RemoteData/Energy pipeline)
+- **Configuration**: Enable via `SentimentAgent:Enabled` setting or by providing `McpServerUrl`
+- **Benefits**: Native MCP integration, JSON-structured responses with confidence scores, dedicated text analysis
+
+**Quick Setup**:
+```json
+{
+  "SentimentAgent": {
+    "Enabled": true,
+    "McpServerUrl": "https://apim-jqucwaho6edqo.azure-api.net/sentiment-analysis/mcp"
+  }
+}
+```
+
+**Note**: When `SentimentAgent:Enabled` is `true`, **ONLY** the SentimentAgent runs (skips energy analysis workflow).
 
 ### 🎯 Copilot Studio Integration
 
@@ -162,7 +241,7 @@ The system supports optional integration with **Microsoft Copilot Studio** for e
 ## 🚀 Quick Start
 
 ### Option 1: Local Development
-1. **Build and run the host locally**:
+1. **Build and prepare the solution**:
 
 ```powershell
 dotnet restore
@@ -174,11 +253,14 @@ $env:MODEL_DEPLOYMENT_NAME='gpt-4o'
 # optional test variables used by examples
 $env:TEST_ZONE='SE3'; $env:TEST_CITY='Stockholm'; $env:TEST_DATE='2025-10-01';
 $env:TEST_USER_REQUEST="Compute a deterministic baseline and three energy-saving measures for zone SE3 in Stockholm on 2025-10-01. Send the summary by email to you@example.com."
-
-dotnet run --project src/Foundry.Agents --configuration Debug
 ```
 
-2. **Check outputs**: After a successful run, check `docs/last_agent_output.json` for the energy GlobalEnvelope and `docs/` for any generated plot PNGs.
+2. **Choose your workflow mode**:
+   - **Full Pipeline**: `dotnet run --project src/Foundry.Agents --configuration Debug`
+   - **Sentiment Only**: See "Workflow Execution Modes" section below for specific commands
+   - **Copilot Only**: See "Workflow Execution Modes" section below for specific commands
+
+3. **Check outputs**: After a successful run, check `docs/last_agent_output.json` for the energy GlobalEnvelope and `docs/` for any generated plot PNGs.
 
 ### Option 2: Deploy to Azure
 1. **Deploy infrastructure**:
@@ -232,9 +314,12 @@ The solution includes comprehensive Infrastructure as Code (Bicep) templates for
 
 ## ⚙️ Configuration
 
+> **📋 Configuration Setup**: See [`CONFIGURATION.md`](CONFIGURATION.md) for detailed setup instructions including how to safely store API keys and endpoints.
+
 ### Application Settings
 - `Project:Endpoint` — persistent agents service endpoint
 - `Project:ModelDeploymentName` — model deployment id (when creating agents)
+- `ApiManagement:SubscriptionKey` — APIM subscription key (store in Development settings)
 - `Azure:KeyVaultName` — Key Vault name for secure configuration (production)
 - `Azure:UseManagedIdentity` — enable managed identity authentication (production)
 
@@ -259,6 +344,43 @@ dotnet test tests/Foundry.Agents.Tests/Foundry.Agents.Tests.csproj -c Debug --no
 cd infra
 .\deploy.ps1 -Environment dev -WhatIf
 ```
+
+## 🎯 Workflow Execution Modes
+
+The orchestrator supports three distinct execution modes:
+
+### 1. 🏭 **Full Energy Analysis Pipeline** (Default)
+Complete multi-agent workflow for energy analysis with optional email delivery:
+```powershell
+# Standard energy analysis workflow
+$env:PROJECT_ENDPOINT="https://persistent-agents-proj-resource.services.ai.azure.com/api/projects/persistent-agents-proj"
+dotnet run --project src/Foundry.Agents/Foundry.Agents.csproj
+```
+**Pipeline**: RemoteData → Energy → EmailGenerator → EmailAssistant
+
+### 2. 🎯 **Sentiment-Only Analysis**
+Standalone sentiment analysis using MCP integration:
+```powershell
+# Sentiment analysis only
+$env:SentimentAgent__Enabled="true"
+$env:SentimentAgent__McpServerUrl="https://apim-love-kapeltol.azure-api.net/sentiment-mcp/mcp"
+$env:PROJECT_ENDPOINT="https://persistent-agents-proj-resource.services.ai.azure.com/api/projects/persistent-agents-proj"
+dotnet run --project src/Foundry.Agents/Foundry.Agents.csproj
+```
+**Pipeline**: SentimentAgent only (bypasses energy workflow)
+
+### 3. 🤖 **Copilot Studio-Only Mode**
+Standalone conversational AI testing:
+```powershell
+# CopilotStudio conversation testing (requires valid bot URL)
+$env:SentimentAgent__Enabled="false"
+$env:CopilotStudio__OnlyMode="true"
+$env:CopilotStudio__Enabled="true"  
+$env:CopilotStudio__BotUrl="https://your-actual-copilot-bot.com"
+$env:PROJECT_ENDPOINT="https://persistent-agents-proj-resource.services.ai.azure.com/api/projects/persistent-agents-proj"
+dotnet run --project src/Foundry.Agents/Foundry.Agents.csproj
+```
+**Pipeline**: CopilotStudio Agent only (requires valid bot configuration)
 
 ## 📚 Additional Resources
 

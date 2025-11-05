@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure;
@@ -157,6 +158,124 @@ namespace Foundry.Agents.Agents.Shared
                     }
                 }
 
+                // Attach MCP server tool if explicitly requested
+                if (requested.Contains("mcp-sentiment"))
+                {
+                    try
+                    {
+                        // Use native MCP support with MCPToolDefinition and authenticated HttpClient
+                        var mcpServerUrl = _configuration["ApiManagement:SentimentMcpUrl"] ?? 
+                                          _configuration["SentimentAgent:McpServerUrl"] ?? 
+                                          "https://apim-love-kapeltol.azure-api.net/sentiment-mcp/mcp";
+                        
+                        var subscriptionKey = _configuration["ApiManagement:SubscriptionKey"] ?? 
+                                             Environment.GetEnvironmentVariable("APIM_SUBSCRIPTION_KEY") ??
+                                             throw new InvalidOperationException("APIM subscription key not found in configuration or environment variables");
+                        
+                        // Create HttpClient with APIM subscription key authentication
+                        var httpClient = new HttpClient();
+                        httpClient.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", subscriptionKey);
+                        
+                        var mcpTool = new MCPToolDefinition("sentiment_mcp_server", mcpServerUrl);
+                        
+                        // Try multiple approaches to set authentication headers
+                        var mcpToolType = mcpTool.GetType();
+                        
+                        // Approach 1: Try to set the HttpClient property
+                        var httpClientProperty = mcpToolType.GetProperty("HttpClient");
+                        if (httpClientProperty != null && httpClientProperty.CanWrite)
+                        {
+                            httpClientProperty.SetValue(mcpTool, httpClient);
+                            _logger.LogInformation("✅ Set HttpClient with APIM subscription key on MCP tool");
+                        }
+                        else
+                        {
+                            _logger.LogInformation("⚠️ MCPToolDefinition HttpClient property not found");
+                        }
+                        
+                        // Approach 2: Try Headers property if it exists
+                        var headersProperty = mcpToolType.GetProperty("Headers");
+                        if (headersProperty != null && headersProperty.CanWrite)
+                        {
+                            var headers = new Dictionary<string, string>
+                            {
+                                {"Ocp-Apim-Subscription-Key", subscriptionKey}
+                            };
+                            headersProperty.SetValue(mcpTool, headers);
+                            _logger.LogInformation("✅ Set Headers with APIM subscription key on MCP tool");
+                        }
+                        else
+                        {
+                            _logger.LogInformation("⚠️ MCPToolDefinition Headers property not found");
+                        }
+                        
+                        // Approach 3: Try DefaultRequestHeaders property
+                        var defaultHeadersProperty = mcpToolType.GetProperty("DefaultRequestHeaders");
+                        if (defaultHeadersProperty != null)
+                        {
+                            var defaultHeaders = defaultHeadersProperty.GetValue(mcpTool);
+                            if (defaultHeaders != null)
+                            {
+                                var addMethod = defaultHeaders.GetType().GetMethod("Add", new[] { typeof(string), typeof(string) });
+                                if (addMethod != null)
+                                {
+                                    addMethod.Invoke(defaultHeaders, new object[] { "Ocp-Apim-Subscription-Key", subscriptionKey });
+                                    _logger.LogInformation("✅ Set DefaultRequestHeaders with APIM subscription key on MCP tool");
+                                }
+                            }
+                        }
+                        
+                        // Configure allowed tools - this may help with Playground approval issues
+                        // Add the MCP server label first (as mentioned in Stack Overflow solution)
+                        mcpTool.AllowedTools.Add("sentiment_mcp_server");
+                        mcpTool.AllowedTools.Add("analyzeSentimentForOneOrMoreDocuments");
+                        
+                        // Try to set approval mode and other properties that might help with auto-approval
+                        try 
+                        {
+                            var approvalModeProperty = mcpToolType.GetProperty("ApprovalMode");
+                            if (approvalModeProperty != null)
+                            {
+                                approvalModeProperty.SetValue(mcpTool, "never");
+                                _logger.LogInformation("✅ Set MCP tool approval mode to 'never'");
+                            }
+                            
+                            // Try other potential auto-approval properties
+                            var autoApproveProperty = mcpToolType.GetProperty("AutoApprove");
+                            if (autoApproveProperty != null && autoApproveProperty.PropertyType == typeof(bool))
+                            {
+                                autoApproveProperty.SetValue(mcpTool, true);
+                                _logger.LogInformation("✅ Set MCP tool AutoApprove to true");
+                            }
+                            
+                            var requiresApprovalProperty = mcpToolType.GetProperty("RequiresApproval");
+                            if (requiresApprovalProperty != null && requiresApprovalProperty.PropertyType == typeof(bool))
+                            {
+                                requiresApprovalProperty.SetValue(mcpTool, false);
+                                _logger.LogInformation("✅ Set MCP tool RequiresApproval to false");
+                            }
+                            
+                            var trustLevelProperty = mcpToolType.GetProperty("TrustLevel");
+                            if (trustLevelProperty != null)
+                            {
+                                trustLevelProperty.SetValue(mcpTool, "trusted");
+                                _logger.LogInformation("✅ Set MCP tool TrustLevel to 'trusted'");
+                            }
+                        }
+                        catch (Exception approvalEx)
+                        {
+                            _logger.LogDebug(approvalEx, "Could not set approval-related properties");
+                        }
+                        
+                        tools.Add(mcpTool);
+                        _logger.LogInformation("Added native MCP sentiment analysis tool with authentication");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to attach MCP sentiment tool");
+                    }
+                }
+
                 // Connected agent tool wiring removed. Orchestration between agents should be handled by
                 // an external orchestrator (for example, OrchestratorAgent) rather than by attaching connected
                 // agent tool definitions at agent creation time. This avoids duplicate orchestration semantics
@@ -210,12 +329,34 @@ namespace Foundry.Agents.Agents.Shared
                 var run = runResp?.Value;
                 if (run == null) return null;
 
-                // Poll until finished
-                while (run.Status == RunStatus.Queued || run.Status == RunStatus.InProgress)
+                // Poll until finished, handling MCP tool approvals
+                while (run.Status == RunStatus.Queued || run.Status == RunStatus.InProgress || run.Status == RunStatus.RequiresAction)
                 {
                     await Task.Delay(500, cancellationToken);
                     var getRunResp = await client.Runs.GetRunAsync(threadId, run.Id, cancellationToken: cancellationToken);
                     run = getRunResp?.Value ?? run;
+
+                    // Handle MCP tool approval requests
+                    if (run.Status == RunStatus.RequiresAction && run.RequiredAction is SubmitToolApprovalAction toolApprovalAction)
+                    {
+                        var toolApprovals = new List<ToolApproval>();
+                        foreach (var toolCall in toolApprovalAction.SubmitToolApproval.ToolCalls)
+                        {
+                            if (toolCall is RequiredMcpToolCall mcpToolCall)
+                            {
+                                _logger.LogInformation("Approving MCP tool call: {ToolName}, Arguments: {Arguments}", 
+                                    mcpToolCall.Name, mcpToolCall.Arguments);
+                                
+                                toolApprovals.Add(new ToolApproval(mcpToolCall.Id, approve: true));
+                            }
+                        }
+
+                        if (toolApprovals.Count > 0)
+                        {
+                            var submitResp = await client.Runs.SubmitToolOutputsToRunAsync(threadId, run.Id, toolApprovals: toolApprovals);
+                            run = submitResp?.Value ?? run;
+                        }
+                    }
                 }
 
                 // Retrieve messages and find last assistant text
@@ -539,5 +680,7 @@ namespace Foundry.Agents.Agents.Shared
                 return false;
             }
         }
+
+
     }
 }

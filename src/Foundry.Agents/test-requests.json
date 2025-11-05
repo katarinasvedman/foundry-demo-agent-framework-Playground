@@ -1,0 +1,10 @@
+{
+  "TestRequests": {
+    "sentiment": "Analyze the sentiment of this text: 'I'm really excited about the new features in this product, but I'm also concerned about the pricing changes.'",
+    "energy": "Analyze energy consumption patterns for zone SE3 in Stockholm on 2025-10-01 and provide baseline calculations with energy efficiency recommendations.",
+    "email": "Compute a deterministic baseline and three energy-saving measures for zone SE3 in Stockholm on 2025-10-01. Send the summary by email to kapeltol@microsoft.com",
+    "energy_optimization": "Calculate energy baseline and identify three energy optimization opportunities for zone SE3 in Stockholm on 2025-10-01.",
+    "energy_measures": "Compute energy consumption baseline and generate three energy-saving measures for zone SE3 in Stockholm on 2025-10-01.",
+    "comprehensive_energy": "Perform comprehensive energy analysis for zone SE3 in Stockholm on 2025-10-01, including baseline calculations and energy efficiency recommendations."
+  }
+}

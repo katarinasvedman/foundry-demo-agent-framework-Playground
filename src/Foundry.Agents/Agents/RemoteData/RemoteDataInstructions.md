@@ -27,6 +27,7 @@ Essential rules (must follow)
 - error format: set "status": "error" and include diagnostics under `data.diagnostics` with attempted_operations, last_error_hint, inputs.
 - Numeric types: numbers must be numeric (not strings). Round to 3 decimal places when applicable.
 - Tools: call `external_signals.DayAheadPrice(zone, date)` then `external_signals.WeatherHourly(city, date)`. Retry each once on transient failure.
+- IMPORTANT: Always attempt API calls regardless of the date. Do NOT make assumptions about whether a date is "too far in the future" or "too old". The external API can handle any date and will return appropriate data or errors.
 
 Quick examples (minimal)
 Needs input:

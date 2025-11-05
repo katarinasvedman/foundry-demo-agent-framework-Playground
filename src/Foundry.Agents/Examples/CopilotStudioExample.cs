@@ -3,6 +3,11 @@ using Microsoft.Extensions.Logging;
 using Foundry.Agents.Agents.CopilotStudio;
 using System.Text.Json;
 
+// NOTE: This example needs to be updated for the new static CopilotStudioAgent factory class.
+// Temporarily disabled while the CopilotStudio integration is being refactored.
+
+/*
+
 namespace Foundry.Agents.Examples
 {
     /// <summary>
@@ -16,11 +21,6 @@ namespace Foundry.Agents.Examples
 
             try
             {
-                // Get the endpoint configuration
-                var endpoint = configuration["Project:Endpoint"] ?? 
-                              Environment.GetEnvironmentVariable("PROJECT_ENDPOINT") ?? 
-                              "http://localhost:3000";
-
                 // Validate existing Copilot Studio bot configuration
                 var isValid = await CopilotStudioAgent.ValidateExistingCopilotStudioBotAsync(
                     configuration: configuration, 
@@ -34,18 +34,14 @@ namespace Foundry.Agents.Examples
 
                 logger.LogInformation("Successfully validated Copilot Studio bot configuration");
                 
-                // Get configuration values
-                var botUrl = configuration["CopilotStudio:BotUrl"] ?? "https://default-bot-url";
-                var tenantId = configuration["CopilotStudio:TenantId"] ?? "default-tenant";
+                // Create the Copilot agent using the static factory method
+                var copilotAgent = await CopilotStudioAgent.GetCopilotAgent(configuration, logger);
                 
-                // Create an instance to interact with the bot
-                var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-                var typedLogger = loggerFactory.CreateLogger<CopilotStudioAgent>();
-                var copilotService = new CopilotStudioAgent(
-                    botUrl: botUrl, 
-                    tenantId: tenantId, 
-                    logger: typedLogger, 
-                    configuration: configuration);
+                if (copilotAgent == null)
+                {
+                    logger.LogError("Failed to create CopilotStudio agent");
+                    return;
+                }
 
                 // Example 1: Simple conversation
                 var simpleMessage = new
@@ -154,3 +150,4 @@ namespace Foundry.Agents.Examples
         }
     }
 }
+*/

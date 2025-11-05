@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP Sentiment Analysis - Live Demo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .demo-badge {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a6f);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .input-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        textarea:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+        .analyze-btn {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: transform 0.2s;
+        }
+        .analyze-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+        }
+        .analyze-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .test-buttons {
+            margin-top: 10px;
+        }
+        .test-btn {
+            background: #e9ecef;
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            font-size: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 5px 0 0;
+        }
+        .test-btn:hover {
+            background: #d6dbdf;
+        }
+        .log-container {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            margin-top: 20px;
+            min-height: 400px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .log-title {
+            color: #9cdcfe;
+            margin-bottom: 15px;
+            font-weight: bold;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+        }
+        .log-line {
+            margin: 2px 0;
+            padding: 2px 0;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        .log-line.stdout {
+            color: #d4d4d4;
+        }
+        .log-line.stderr {
+            color: #ff6b6b;
+        }
+        .log-line.system {
+            color: #9cdcfe;
+            font-style: italic;
+        }
+        .log-line.success {
+            color: #4ade80;
+            font-weight: bold;
+        }
+        .log-line.error {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+        .clear-btn {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            font-size: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            float: right;
+            margin-bottom: 10px;
+        }
+        .clear-btn:hover {
+            background: #5a6268;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-idle { background: #6c757d; }
+        .status-running { background: #ffc107; animation: pulse 1.5s infinite; }
+        .status-success { background: #28a745; }
+        .status-error { background: #dc3545; }
+        
+        .tech-stack {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #666;
+        }
+        .tech-item {
+            background: #e9ecef;
+            padding: 5px 10px;
+            border-radius: 15px;
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+    </style>
+    <style>
+        @@keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        @@keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧠 MCP Sentiment Analysis <span class="demo-badge">LIVE DEMO</span></h1>
+        <p class="subtitle">Azure AI Agent with Model Context Protocol (MCP) Integration via APIM - Server-Side Execution</p>
+        
+        <div class="input-section">
+            <label for="textInput"><strong>Enter text to analyze:</strong></label>
+            <textarea id="textInput" placeholder="Type or paste your text here for sentiment analysis...">I love sunny days and beautiful weather!</textarea>
+            
+            <div class="test-buttons">
+                <button class="test-btn" onclick="setTestText('I love sunny days and beautiful weather!')">😊 Positive</button>
+                <button class="test-btn" onclick="setTestText('This is incredibly frustrating and disappointing.')">😠 Negative</button>
+                <button class="test-btn" onclick="setTestText('The meeting went well and we accomplished our goals.')">😐 Neutral</button>
+                <button class="test-btn" onclick="setTestText('I cannot believe how amazing this experience has been! Absolutely wonderful!')">🌟 Very Positive</button>
+                <button class="test-btn" onclick="setTestText('Analyze the complex emotional landscape of this customer feedback: I am incredibly excited about the innovative new features you have announced - they show real vision and understanding of our needs. However, I am deeply concerned about the recurring bugs in the current version that are affecting my daily workflow, and I am honestly disappointed with how long these issues have persisted without resolution. While I appreciate the potential of what is coming, I need stability now.')">🔄 Complex Mixed</button>
+            </div>
+            
+            <button class="analyze-btn" id="analyzeBtn" onclick="runSentimentAnalysis()">
+                <span class="status-indicator status-idle" id="statusIndicator"></span>
+                🚀 Run Sentiment Analysis (Click Once Only)
+            </button>
+        </div>
+
+        <div class="log-container">
+            <div class="log-title">
+                🖥️ Live Execution Log
+                <button class="clear-btn" onclick="clearLogs()">Clear</button>
+            </div>
+            <div id="logOutput">
+                <div class="log-line system">Ready to analyze sentiment. Click "Run Sentiment Analysis" to start...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tech-stack">
+        <span class="tech-item">ASP.NET Core</span>
+        <span class="tech-item">Server-Side Events</span>
+        <span class="tech-item">Azure AI Agents</span>
+        <span class="tech-item">Model Context Protocol</span>
+        <span class="tech-item">Azure APIM</span>
+        <span class="tech-item">Real-Time Streaming</span>
+    </div>
+
+    <script>
+        let isRunning = false;
+        let eventSource = null;
+
+        function setTestText(text) {
+            const textInput = document.getElementById('textInput');
+            if (textInput) {
+                textInput.value = text;
+            }
+        }
+
+        function addLogLine(message, type = 'stdout') {
+            const logOutput = document.getElementById('logOutput');
+            if (!logOutput) return;
+            
+            const logLine = document.createElement('div');
+            logLine.className = `log-line ${type}`;
+            
+            // Add timestamp for system messages
+            if (type === 'system') {
+                const timestamp = new Date().toLocaleTimeString();
+                message = `[${timestamp}] ${message}`;
+            }
+            
+            logLine.textContent = message;
+            logOutput.appendChild(logLine);
+            
+            // Auto-scroll to bottom
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
+
+        function clearLogs() {
+            const logOutput = document.getElementById('logOutput');
+            if (logOutput) {
+                logOutput.innerHTML = '<div class="log-line system">Logs cleared. Ready for new analysis...</div>';
+            }
+        }
+
+        function updateStatus(status, text) {
+            const btn = document.getElementById('analyzeBtn');
+            const indicator = document.getElementById('statusIndicator');
+            
+            if (indicator) {
+                indicator.className = `status-indicator status-${status}`;
+            }
+            
+            if (btn) {
+                if (status === 'running') {
+                    btn.innerHTML = `<span class="loading-spinner"></span>Running Analysis... Please Wait`;
+                    btn.disabled = true;
+                } else {
+                    btn.innerHTML = `<span class="status-indicator status-${status}"></span>🚀 Run Sentiment Analysis`;
+                    btn.disabled = false;
+                }
+            }
+        }
+
+        function runSentimentAnalysis() {
+            const textInput = document.getElementById('textInput');
+            const text = textInput.value.trim();
+            
+            if (!text) {
+                alert('Please enter some text to analyze.');
+                return;
+            }
+
+            if (isRunning) {
+                addLogLine('⚠️ Analysis already in progress, please wait...', 'system');
+                return;
+            }
+
+            // Ensure no existing connections
+            cleanup();
+
+            isRunning = true;
+            updateStatus('running', 'Running Analysis...');
+            
+            // Clear previous logs
+            const logOutput = document.getElementById('logOutput');
+            logOutput.innerHTML = '';
+            
+            addLogLine('Starting MCP Sentiment Analysis...', 'system');
+            addLogLine(`Input text: "${text}"`, 'system');
+            addLogLine('Executing server-side analysis...', 'system');
+
+            // Use regular POST request instead of SSE to avoid auto-reconnection
+            fetch('/api/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text: text })
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    // Split output into lines and display them
+                    const lines = result.output.split('\n');
+                    lines.forEach(line => {
+                        if (line.trim()) {
+                            addLogLine(line, 'stdout');
+                        }
+                    });
+                    
+                    if (result.error && result.error.trim()) {
+                        const errorLines = result.error.split('\n');
+                        errorLines.forEach(line => {
+                            if (line.trim()) {
+                                addLogLine(line, 'stderr');
+                            }
+                        });
+                    }
+                    
+                    addLogLine('✅ Analysis completed successfully!', 'success');
+                    updateStatus('success', '🚀 Run Sentiment Analysis (Click Once Only)');
+                } else {
+                    addLogLine(`❌ Analysis failed with exit code: ${result.exitCode}`, 'error');
+                    if (result.error) {
+                        const errorLines = result.error.split('\n');
+                        errorLines.forEach(line => {
+                            if (line.trim()) {
+                                addLogLine(line, 'stderr');
+                            }
+                        });
+                    }
+                    updateStatus('error', '🚀 Run Sentiment Analysis (Click Once Only)');
+                }
+            })
+            .catch(error => {
+                addLogLine(`❌ Network Error: ${error.message}`, 'error');
+                updateStatus('error', '🚀 Run Sentiment Analysis (Click Once Only)');
+            })
+            .finally(() => {
+                isRunning = false;
+            });
+        }
+
+        function cleanup() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            cleanup();
+        });
+    </script>
+</body>
+</html>

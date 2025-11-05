@@ -108,3 +108,23 @@ src/Foundry.Agents/Agents/Energy/EnergyInstructions copy.md
 src/Foundry.Agents.Samples.Workflows/ProgramProbe.cs
 .gitignore
 docs/email-sender-tool-issue.md
+
+# Development settings with secrets
+**/appsettings.Development.json
+**/appsettings.local.json
+appsettings.sentiment-only.json
+appsettings.sentiment.json
+COMMIT_MESSAGE.md
+CONFIGURATION.md
+Copilot-Studio-Developer-Instructions.md
+CopilotStudioAgent-Implementation-Summary.md
+test-sentiment.ps1
+Agents/Sentiment/README.md
+Agents/Sentiment/SentimentAgent.yaml
+src/Foundry.Agents/appsettings.json
+src/Foundry.Agents/appsettings.local.template.json
+src/Foundry.Agents/appsettings.json
+src/Foundry.Agents/Agents/EmailGenerator/agent-id.txt
+src/Foundry.Agents/Agents/Energy/EnergyInstructions_orig.md
+src/Foundry.Agents/Examples/CopilotStudioExample.cs
+src/Foundry.Agents/Examples/SentimentAgentExample.cs
