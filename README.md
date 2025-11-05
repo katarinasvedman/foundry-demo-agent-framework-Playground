@@ -345,42 +345,7 @@ cd infra
 .\deploy.ps1 -Environment dev -WhatIf
 ```
 
-## 🎯 Workflow Execution Modes
 
-The orchestrator supports three distinct execution modes:
-
-### 1. 🏭 **Full Energy Analysis Pipeline** (Default)
-Complete multi-agent workflow for energy analysis with optional email delivery:
-```powershell
-# Standard energy analysis workflow
-$env:PROJECT_ENDPOINT="https://persistent-agents-proj-resource.services.ai.azure.com/api/projects/persistent-agents-proj"
-dotnet run --project src/Foundry.Agents/Foundry.Agents.csproj
-```
-**Pipeline**: RemoteData → Energy → EmailGenerator → EmailAssistant
-
-### 2. 🎯 **Sentiment-Only Analysis**
-Standalone sentiment analysis using MCP integration:
-```powershell
-# Sentiment analysis only
-$env:SentimentAgent__Enabled="true"
-$env:SentimentAgent__McpServerUrl="https://apim-love-kapeltol.azure-api.net/sentiment-mcp/mcp"
-$env:PROJECT_ENDPOINT="https://persistent-agents-proj-resource.services.ai.azure.com/api/projects/persistent-agents-proj"
-dotnet run --project src/Foundry.Agents/Foundry.Agents.csproj
-```
-**Pipeline**: SentimentAgent only (bypasses energy workflow)
-
-### 3. 🤖 **Copilot Studio-Only Mode**
-Standalone conversational AI testing:
-```powershell
-# CopilotStudio conversation testing (requires valid bot URL)
-$env:SentimentAgent__Enabled="false"
-$env:CopilotStudio__OnlyMode="true"
-$env:CopilotStudio__Enabled="true"  
-$env:CopilotStudio__BotUrl="https://your-actual-copilot-bot.com"
-$env:PROJECT_ENDPOINT="https://persistent-agents-proj-resource.services.ai.azure.com/api/projects/persistent-agents-proj"
-dotnet run --project src/Foundry.Agents/Foundry.Agents.csproj
-```
-**Pipeline**: CopilotStudio Agent only (requires valid bot configuration)
 
 ## 📚 Additional Resources
 
