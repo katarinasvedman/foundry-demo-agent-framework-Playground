@@ -349,8 +349,9 @@ cd infra
 
 ## 📚 Additional Resources
 
-- **Development Roadmap**: `PLAN.md` - Comprehensive 8-phase development plan for next steps
-- **Quick Wins Guide**: `QUICK_WINS.md` - 10 high-impact tasks deliverable in 1-2 weeks
+- **📋 Development Plan Quick Reference**: `PLAN_REFERENCE.md` - Quick navigation guide to all planning documents
+- **🗺️ Development Roadmap**: `PLAN.md` - Comprehensive 8-phase development plan for next steps
+- **⚡ Quick Wins Guide**: `QUICK_WINS.md` - 10 high-impact tasks deliverable in 1-2 weeks
 - **Infrastructure Guide**: `infra/README.md` - Complete Azure deployment documentation
 - **Architecture Overview**: `infra/DEPLOYMENT-SUMMARY.md` - Infrastructure components and costs
 - **Copilot Studio Integration**: `docs/COPILOT-STUDIO-INTEGRATION.md` - Complete setup and usage guide
